@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.1] — 2026-08-11
+
+- Auto `bun install` on first hook/MCP use after git install (`scripts/ensure-deps.sh`)
+- Document bun requirement in README
+
 ## [0.1.0] — 2026-08-11
 
 Initial public release of **grok-honcho**, a Grok Build–native Honcho memory plugin.

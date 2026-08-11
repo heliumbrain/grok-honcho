@@ -20,14 +20,19 @@ Running claude-honcho under Grok Claude-compat is half-broken:
 
 ## Install
 
+**Requires [bun](https://bun.sh)** on your PATH (hooks and MCP run with `bun`).
+
 ```bash
 grok plugin install heliumbrain/grok-honcho --trust
 grok plugin enable honcho   # if not already enabled
 ```
 
+Git installs do not ship `node_modules`. The first hook/MCP run runs `bun install` via `scripts/ensure-deps.sh` (or run it yourself once under the installed plugin path).
+
 Local dev:
 
 ```bash
+cd /path/to/grok-honcho && bun install
 grok plugin install /path/to/grok-honcho --trust
 grok plugin enable honcho
 ```

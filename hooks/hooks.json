@@ -6,8 +6,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/session-start.ts\"",
-            "timeout": 30
+            "command": "bash -c 'ROOT=\"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}\"; bash \"$ROOT/scripts/ensure-deps.sh\" && bun run \"$ROOT/hooks/session-start.ts\"'",
+            "timeout": 60
           }
         ]
       }
@@ -17,8 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/session-end.ts\"",
-            "timeout": 5
+            "command": "bash -c 'ROOT=\"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}\"; bash \"$ROOT/scripts/ensure-deps.sh\" && bun run \"$ROOT/hooks/session-end.ts\"'",
+            "timeout": 10
           }
         ]
       }
@@ -28,8 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/user-prompt.ts\"",
-            "timeout": 30
+            "command": "bash -c 'ROOT=\"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}\"; bash \"$ROOT/scripts/ensure-deps.sh\" && bun run \"$ROOT/hooks/user-prompt.ts\"'",
+            "timeout": 45
           }
         ]
       }
@@ -39,8 +39,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run \"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}/hooks/stop.ts\"",
-            "timeout": 15
+            "command": "bash -c 'ROOT=\"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}\"; bash \"$ROOT/scripts/ensure-deps.sh\" && bun run \"$ROOT/hooks/stop.ts\"'",
+            "timeout": 30
           }
         ]
       }
