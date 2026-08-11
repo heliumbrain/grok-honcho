@@ -10,7 +10,7 @@
       "name": "honcho",
       "description": "Persistent memory for Grok Build sessions using Honcho",
       "category": "memory",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": ".",
       "keywords": ["memory", "honcho", "context", "persistence", "grok"]
     }
