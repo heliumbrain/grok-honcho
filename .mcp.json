@@ -1,11 +1,8 @@
 {
   "mcpServers": {
     "honcho": {
-      "command": "bash",
-      "args": [
-        "-c",
-        "ROOT=\"${GROK_PLUGIN_ROOT:-$CLAUDE_PLUGIN_ROOT}\"; bash \"$ROOT/scripts/ensure-deps.sh\" && exec bun run \"$ROOT/mcp-server.ts\""
-      ],
+      "command": "bun",
+      "args": ["run", "${CLAUDE_PLUGIN_ROOT}/mcp-server.ts"],
       "env": {
         "HONCHO_HOST": "grok"
       }

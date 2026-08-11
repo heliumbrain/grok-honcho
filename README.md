@@ -13,7 +13,15 @@ grok plugin install heliumbrain/grok-honcho --trust
 grok plugin enable honcho   # if not already enabled
 ```
 
-Git installs do not ship `node_modules`. The first hook/MCP run runs `bun install` via `scripts/ensure-deps.sh` (or run it yourself once under the installed plugin path).
+Git installs do not ship `node_modules`. After install, once:
+
+```bash
+# path from: grok plugin details honcho
+cd ~/.grok/installed-plugins/grok-honcho-*/   # or your install path
+bun install
+```
+
+Hooks can also run `scripts/ensure-deps.sh` on first use. **MCP does not** — install-at-spawn writes to stdout and breaks the JSON-RPC handshake.
 
 Local dev:
 

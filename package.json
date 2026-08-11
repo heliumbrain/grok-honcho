@@ -1,6 +1,6 @@
 {
   "name": "grok-honcho",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Grok Build–native Honcho memory plugin",
   "type": "module",
   "license": "MIT",

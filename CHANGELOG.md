@@ -1,8 +1,14 @@
 # Changelog
 
+## [0.1.2] — 2026-08-11
+
+- Fix MCP handshake: launch with direct `bun run ${CLAUDE_PLUGIN_ROOT}/mcp-server.ts` (OpenViking/Telegram pattern)
+- Never run `bun install` on MCP spawn — stdout noise broke initialize (Broken pipe)
+- `ensure-deps.sh` remains for hooks only; install output redirected off stdout
+
 ## [0.1.1] — 2026-08-11
 
-- Auto `bun install` on first hook/MCP use after git install (`scripts/ensure-deps.sh`)
+- Auto `bun install` on first hook use after git install (`scripts/ensure-deps.sh`)
 - Document bun requirement in README
 
 ## [0.1.0] — 2026-08-11
