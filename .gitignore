@@ -1,0 +1,17 @@
+node_modules/
+bun.lockb
+*.log
+.DS_Store
+dist/
+.cache/
+.env
+.env.*
+*.pem
+*.key
+# Never commit local Honcho secrets
+.honcho/
+**/config.local.json
+# editor / OS
+.idea/
+.vscode/
+*.swp

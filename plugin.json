@@ -1,0 +1,13 @@
+{
+  "name": "honcho",
+  "version": "0.1.0",
+  "description": "Persistent memory for Grok Build sessions using Honcho",
+  "author": {
+    "name": "heliumbrain",
+    "url": "https://github.com/heliumbrain/grok-honcho"
+  },
+  "homepage": "https://github.com/heliumbrain/grok-honcho",
+  "repository": "https://github.com/heliumbrain/grok-honcho",
+  "license": "MIT",
+  "keywords": ["memory", "honcho", "grok", "context", "persistence"]
+}

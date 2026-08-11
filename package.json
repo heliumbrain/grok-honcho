@@ -1,0 +1,31 @@
+{
+  "name": "grok-honcho",
+  "version": "0.1.0",
+  "description": "Grok Build–native Honcho memory plugin",
+  "type": "module",
+  "license": "MIT",
+  "author": "heliumbrain",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/heliumbrain/grok-honcho.git"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@honcho-ai/sdk": "^2.1.0",
+    "@modelcontextprotocol/sdk": "^1.26.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "grok",
+    "honcho",
+    "memory",
+    "mcp",
+    "hooks"
+  ]
+}

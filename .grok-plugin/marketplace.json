@@ -1,0 +1,18 @@
+{
+  "name": "grok-honcho",
+  "description": "Grok Build–native Honcho memory plugin",
+  "owner": {
+    "name": "heliumbrain",
+    "email": "nils@heliumbrain.dev"
+  },
+  "plugins": [
+    {
+      "name": "honcho",
+      "description": "Persistent memory for Grok Build sessions using Honcho",
+      "category": "memory",
+      "version": "0.1.0",
+      "source": ".",
+      "keywords": ["memory", "honcho", "context", "persistence", "grok"]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "honcho": {
+      "command": "bun",
+      "args": ["run", "${GROK_PLUGIN_ROOT}/mcp-server.ts"],
+      "env": {
+        "HONCHO_HOST": "grok"
+      }
+    }
+  }
+}
