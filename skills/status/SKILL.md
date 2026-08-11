@@ -15,7 +15,9 @@ Call the MCP tool `get_config` (server `honcho`) and summarize:
 
 Session name must match the current project directory strategy (default: `{peerName}-{dirname}`).
 
-If the tool is unavailable, check that the plugin is installed with `--trust` and enabled:
+**Hooks vs MCP:** MCP working does not prove hooks are bound. On current Grok Build only Global hooks auto-load; plugin hooks need **`/hooks` → `r`** after starting Grok. Confirm with `~/.honcho/activity.log` (`grok-honcho:user-prompt` / `stop`). If nothing appears after a turn, reload hooks and retry.
+
+If the MCP tool is unavailable, check that the plugin is installed with `--trust` and enabled:
 
 ```bash
 grok plugin list

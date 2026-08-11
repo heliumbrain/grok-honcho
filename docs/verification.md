@@ -22,7 +22,7 @@ grok-honcho:stop Capturing assistant message via lastAssistantMessage (56 chars)
 grok-honcho:stop Saved assistant message (lastAssistantMessage)
 ```
 
-Interactive TUI cold-start (new session without `/hooks` first) was not driven in automation; hooks are registered, trusted, enabled, and proven under representative Grok JSON stdin against the live self-hosted endpoint.
+Interactive TUI: plugin hooks **do not auto-bind on cold start** on Grok Build 1.0.0 (only Global `~/.grok/hooks/` load). After `/hooks` → `r`, SessionStart / UserPromptSubmit / Stop fire and write `activity.log`. Stdin smoke against the live self-hosted endpoint still proves handlers independent of TUI binding.
 
 ## Unit tests (gating)
 
@@ -51,13 +51,23 @@ Expect hooks (SessionStart, UserPromptSubmit, Stop, SessionEnd) and MCP server `
 
 ## Cold-start / stdin smoke
 
-Interactive TUI cold-start may be limited in automation. Minimum bar:
+### TUI binding (Grok host)
+
+1. Install + trust + enable (above).
+2. Open **`/hooks` → `r`** (plugin hooks are not auto-bound on cold start; Global hooks are).
+3. Send a user message and wait for a reply.
+4. Expect `~/.honcho/activity.log` lines: `grok-honcho:user-prompt` then `grok-honcho:stop` with a non-empty save.
+
+Without step 2, MCP may still work while hooks stay silent — that is the host quirk, not a plugin misconfig.
+
+### Stdin (handlers without TUI)
+
+Minimum bar independent of TUI binding:
 
 1. Registered hooks in `hooks/hooks.json`
 2. Unit tests prove Stop never no-ops on non-empty `lastAssistantMessage`
 3. Hook scripts exit 0 under representative Grok JSON stdin (fail-open if Honcho unreachable)
 
-```bash
 ```bash
 export GROK_PLUGIN_ROOT=/path/to/grok-honcho
 export HONCHO_HOST=grok
@@ -82,11 +92,14 @@ With plugin trusted, call `get_config` in a Grok session opened in a known dir (
 
 ```bash
 gh repo view heliumbrain/grok-honcho --json isPrivate,url
-git tag v0.1.0 && git push origin v0.1.0
+# after version bump + CHANGELOG:
+git tag v0.1.x && git push origin v0.1.x
 ```
 
-Install from public:
+Install from public (git tip of main, or a tag):
 
 ```bash
 grok plugin install heliumbrain/grok-honcho --trust
+grok plugin enable honcho
+# then in TUI: /hooks → r
 ```

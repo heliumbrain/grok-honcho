@@ -25,12 +25,12 @@ grok plugin install . --trust
 grok plugin enable honcho
 ```
 
-Then **start a new Grok session**. Trusted+enabled plugins load hooks and MCP without a manual `/hooks` dance. If hooks still look empty once, press `r` in the Plugins tab or restart the session.
+Then **reload plugin hooks** (required on current Grok Build — see below) and open a project directory.
 
 ### Trust vs enable
 
 - **Enable** loads skills/commands; plugins are off until enabled.
-- **Trust** (`--trust` or under `~/.grok/plugins/`) activates **hooks and MCP**. Without trust, MCP shows as blocked.
+- **Trust** (`--trust` or under `~/.grok/plugins/`) allows the plugin’s **hooks and MCP** to run. Without trust, MCP shows as blocked.
 
 Verify:
 
@@ -39,6 +39,19 @@ grok plugin list
 grok plugin details honcho
 grok inspect   # optional: inventory
 ```
+
+### Activate hooks after install (Grok host quirk)
+
+On current Grok Build (**1.0.0** and main through at least 2026-08-10):
+
+| Hook source | Cold start |
+|-------------|------------|
+| **Global** (`~/.grok/hooks/*.json`) | Auto-load and run |
+| **Plugin** (this plugin, `phx`, …) | Discovered / trusted, but **not bound** until reload |
+
+**Workaround (every new Grok process until fixed):** open **`/hooks`** → press **`r`** (reload hooks from disk). A brand-new process + session alone is **not** enough.
+
+MCP skills/tools from the same plugin often work before that reload; message-saving hooks do not. This is a Grok host gap (not specific to grok-honcho). Confirm live hooks via `~/.honcho/activity.log` (`grok-honcho:user-prompt` / `stop` lines).
 
 ### MCP without config.toml
 
@@ -85,6 +98,8 @@ Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice
 | **SessionEnd** | Local log only, fail open |
 
 Errors never block the agent. Logs: `~/.honcho/activity.log` with `grok-honcho:` sources.
+
+Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.js` bundles. They must be **bound in the live session** — on current Grok that means **`/hooks` → `r`** after install or after starting a new Grok process (see [Activate hooks after install](#activate-hooks-after-install-grok-host-quirk)).
 
 ## MCP tools
 

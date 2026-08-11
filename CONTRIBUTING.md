@@ -22,6 +22,8 @@ grok plugin install /path/to/grok-honcho --trust
 grok plugin enable honcho
 ```
 
+In the TUI, run **`/hooks` → `r`** so plugin hooks bind. On current Grok Build only Global hooks (`~/.grok/hooks/`) auto-load; plugin hooks stay unbound until that reload.
+
 ## Rules of thumb
 
 1. Fail open on hook errors — never block the agent on memory failure.
