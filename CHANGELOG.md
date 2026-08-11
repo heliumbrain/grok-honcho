@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3] — 2026-08-11
+
+- Zero-install runtime: ship prebuilt `dist/` bundles (MCP + hooks) — no manual `bun install` after plugin install
+- MCP: `bun run ${CLAUDE_PLUGIN_ROOT}/dist/mcp-server.js` (protocol-clean stdout)
+- Hooks: run bundled `dist/hooks/*.js`; `bun` still required on PATH
+- `bun run build` regenerates bundles for contributors
+
 ## [0.1.2] — 2026-08-11
 
 - Fix MCP handshake: launch with direct `bun run ${CLAUDE_PLUGIN_ROOT}/mcp-server.ts` (OpenViking/Telegram pattern)

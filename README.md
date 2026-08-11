@@ -6,28 +6,22 @@ Adapted from [plastic-labs/claude-honcho](https://github.com/plastic-labs/claude
 
 ## Install
 
-**Requires [bun](https://bun.sh)** on your PATH (hooks and MCP run with `bun`).
+**Requires [bun](https://bun.sh)** on your PATH (runtime only — no `bun install` step).
 
 ```bash
 grok plugin install heliumbrain/grok-honcho --trust
 grok plugin enable honcho   # if not already enabled
 ```
 
-Git installs do not ship `node_modules`. After install, once:
+The plugin ships prebuilt `dist/` bundles (MCP + hooks). Dependencies are compiled in; you do **not** need to run `bun install` after installing the plugin.
+
+Local dev / contributors:
 
 ```bash
-# path from: grok plugin details honcho
-cd ~/.grok/installed-plugins/grok-honcho-*/   # or your install path
-bun install
-```
-
-Hooks can also run `scripts/ensure-deps.sh` on first use. **MCP does not** — install-at-spawn writes to stdout and breaks the JSON-RPC handshake.
-
-Local dev:
-
-```bash
-cd /path/to/grok-honcho && bun install
-grok plugin install /path/to/grok-honcho --trust
+cd /path/to/grok-honcho
+bun install          # for tests and rebuilds only
+bun run build        # regenerate dist/ after source changes
+grok plugin install . --trust
 grok plugin enable honcho
 ```
 
