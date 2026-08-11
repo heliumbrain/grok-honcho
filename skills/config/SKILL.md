@@ -10,13 +10,13 @@ Config lives at `~/.honcho/config.json` (shared with Claude/other hosts). Prefer
 ```json
 {
   "apiKey": "…",
-  "peerName": "nils",
+  "peerName": "alice",
   "hosts": {
     "grok": {
       "workspace": "default",
       "aiPeer": "grok",
       "sessionStrategy": "per-directory",
-      "endpoint": { "baseUrl": "http://your-honcho:8008" }
+      "endpoint": { "baseUrl": "http://localhost:8000" }
     }
   }
 }

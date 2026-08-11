@@ -2,21 +2,7 @@
 
 **Grok Build–native** persistent memory via [Honcho](https://docs.honcho.dev).
 
-This is **not** a Claude Code plugin. It is a first-class Grok plugin: camelCase hook envelope, `lastAssistantMessage` on Stop, host `grok`, plugin MCP as `honcho__*`.
-
-Inspired by / adapted from [plastic-labs/claude-honcho](https://github.com/plastic-labs/claude-honcho) (MIT).
-
-## Why
-
-Running claude-honcho under Grok Claude-compat is half-broken:
-
-| Problem | claude-honcho | grok-honcho |
-|---------|---------------|-------------|
-| Stop saves assistant text | Parses Claude `transcript_path` JSONL only → often **no-ops** on Grok | Prefers **`lastAssistantMessage`** |
-| Hook stdin | snake_case | camelCase (+ snake_case fallback) |
-| Host detection | falls through to `claude_code` | **`grok`**, default AI peer `grok` |
-| PreToolUse matchers | `mcp__plugin_honcho_honcho__.*` | Not required for core; MCP is `honcho__*` |
-| Install | Claude marketplace | `grok plugin install … --trust` |
+Adapted from [plastic-labs/claude-honcho](https://github.com/plastic-labs/claude-honcho) (MIT).
 
 ## Install
 
@@ -54,24 +40,24 @@ grok inspect   # optional: inventory
 
 ### MCP without config.toml
 
-Once the plugin is trusted, Honcho MCP attaches from the plugin’s `.mcp.json`. You do **not** need a hand-maintained `[mcp_servers.honcho]` in `~/.grok/config.toml`. If you previously added a manual Honcho MCP block for claude-honcho, remove or disable it to avoid duplicate tools.
+Once the plugin is trusted, Honcho MCP attaches from the plugin’s `.mcp.json`. You do **not** need a hand-maintained `[mcp_servers.honcho]` in `~/.grok/config.toml`. If you previously added a manual Honcho MCP block, remove or disable it to avoid duplicate tools.
 
 ## Config
 
-Shared file: **`~/.honcho/config.json`** (same as claude-honcho / Hermes). Preferred block: `hosts.grok`.
+Shared file: **`~/.honcho/config.json`** (same as other Honcho clients). Preferred block: `hosts.grok`.
 
 Self-hosted example:
 
 ```json
 {
   "apiKey": "your-key",
-  "peerName": "nils",
+  "peerName": "alice",
   "hosts": {
     "grok": {
       "workspace": "default",
       "aiPeer": "grok",
       "sessionStrategy": "per-directory",
-      "endpoint": { "baseUrl": "http://komodo:8008" }
+      "endpoint": { "baseUrl": "http://localhost:8000" }
     }
   }
 }
@@ -79,15 +65,15 @@ Self-hosted example:
 
 SaaS: omit `endpoint` (or `"environment": "production"`). Env overrides: `HONCHO_API_KEY`, `HONCHO_ENDPOINT`, `HONCHO_PEER_NAME`, `HONCHO_HOST=grok`.
 
-If `hosts.grok` is missing, this plugin **falls back to `hosts.claude_code`** so existing self-hosted setups keep working without rewriting config.
+If `hosts.grok` is missing, this plugin **falls back to `hosts.claude_code`** so existing setups keep working without rewriting config.
 
-Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `nils-svarm` for `/…/svarm`. Override with root `sessions` map:
+Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice-myapp` for `/…/myapp`. Override with root `sessions` map:
 
 ```json
-"sessions": { "/home/nils/projects/svarm": "my-session" }
+"sessions": { "/home/alice/projects/myapp": "my-session" }
 ```
 
-## Hooks (Grok envelope)
+## Hooks
 
 | Event | Behavior |
 |-------|----------|
@@ -104,13 +90,7 @@ Errors never block the agent. Logs: `~/.honcho/activity.log` with `grok-honcho:`
 
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 
-## Verified
-
-v0.1.0 smoke (self-hosted Honcho): SessionStart / UserPromptSubmit / Stop with non-empty `lastAssistantMessage` all wrote to Honcho; session name matched cwd (`nils-verify-proj`). Details: [docs/verification.md](docs/verification.md).
-
 ## Verification
-
-Quick smoke:
 
 ```bash
 bun install && bun test
@@ -118,6 +98,8 @@ bun install && bun test
 echo '{"sessionId":"t","cwd":"/tmp/x","workspaceRoot":"/tmp/x","lastAssistantMessage":"hi","stopHookActive":false,"reason":"end_turn"}' \
   | HONCHO_HOST=grok bun run hooks/stop.ts ; echo exit:$?
 ```
+
+More detail: [docs/verification.md](docs/verification.md).
 
 ## Security
 
