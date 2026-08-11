@@ -9,10 +9,12 @@ bun test
 
 ## Layout
 
-Single-plugin repo root (installable as `heliumbrain/grok-honcho`):
+Single-plugin repo root (installable as `heliumbrain/grok-honcho`). **Grok-only** — no `.claude-plugin/` tree.
 
-- Hooks: `hooks/hooks.json` + thin entry scripts; logic in `src/hooks/`
-- MCP: `.mcp.json` → `mcp-server.ts` → `src/mcp/server.ts`
+- Manifest: root `plugin.json` + marketplace index `.grok-plugin/marketplace.json`
+- Hooks: `hooks/hooks.json` + thin entry scripts; logic in `src/hooks/`; runtime `dist/hooks/`
+- MCP: `.mcp.json` → `dist/mcp-server.js` (source: `mcp-server.ts` / `src/mcp/`)
+- Skills: `skills/`
 - Pure payload/session helpers: `src/payload.ts`, `src/config.ts`
 
 ## Local install

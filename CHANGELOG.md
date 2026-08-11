@@ -7,6 +7,7 @@
 - Hooks: run bundled `dist/hooks/*.js`; `bun` still required on PATH
 - `bun run build` regenerates bundles for contributors
 - Docs: document Grok host quirk — only **Global** hooks auto-load; plugin hooks need **`/hooks` → `r`** even on a brand-new process/session (affects honcho and other plugins like phx). Fix setup/status skills and verification accordingly.
+- Pure Grok plugin: drop `.claude-plugin/`; keep `.grok-plugin/` + root `plugin.json` (hooks/MCP/skills paths explicit)
 
 ## [0.1.2] — 2026-08-11
 

@@ -9,5 +9,8 @@
   "homepage": "https://github.com/heliumbrain/grok-honcho",
   "repository": "https://github.com/heliumbrain/grok-honcho",
   "license": "MIT",
-  "keywords": ["memory", "honcho", "grok", "context", "persistence"]
+  "keywords": ["memory", "honcho", "grok", "context", "persistence"],
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills/"
 }
