@@ -137,10 +137,11 @@ function handleGetConfig(cwd: string) {
             resolved,
             current,
             host: { detected: host, hasHostsBlock: !!rawFile.hosts, otherHosts },
+            hookHealth: { ...hookHealth, logPath: getLogPath() },
             warnings,
             configPath: cfgPath,
             configExists: cfgExists,
-            plugin: "grok-honcho",
+            plugin: { name: "grok-honcho", version: getPluginVersion() },
           },
           null,
           2,
@@ -348,8 +349,6 @@ export async function runMcpServer(): Promise<void> {
     { capabilities: { tools: {} } },
   );
 
-  const activeConfig: HonchoRuntimeConfig | null = config;
-
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
@@ -489,6 +488,17 @@ export async function runMcpServer(): Promise<void> {
         isError: true,
       };
     }
+    if (activeConfig.enabled === false) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Error: Honcho is disabled. Use set_config to enable it.",
+          },
+        ],
+        isError: true,
+      };
+    }
 
     const honcho = new Honcho(getHonchoClientOptions(activeConfig));
     const honchoDialectic = new Honcho({
@@ -533,7 +543,9 @@ export async function runMcpServer(): Promise<void> {
       }
     }
 
-    const sessionName = getSessionName(cwd);
+    const branch =
+      activeConfig.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, undefined, activeConfig, branch);
 
     try {
       const session = await honcho.session(sessionName);
