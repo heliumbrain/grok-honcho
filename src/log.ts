@@ -28,6 +28,13 @@ export interface LogEntry {
   plugin?: string;
 }
 
+export interface HookHealth {
+  lastActivityAt: string | null;
+  lastSessionStartAt: string | null;
+  lastUserPromptAt: string | null;
+  lastStopAt: string | null;
+}
+
 let currentCwd: string | null = null;
 let currentSession: string | null = null;
 
@@ -103,4 +110,45 @@ export function logFlow(stage: string, message: string, data?: unknown): void {
 
 export function getLogPath(): string {
   return LOG_FILE;
+}
+
+export function parseHookHealth(content: string, cwd?: string): HookHealth {
+  const health: HookHealth = {
+    lastActivityAt: null,
+    lastSessionStartAt: null,
+    lastUserPromptAt: null,
+    lastStopAt: null,
+  };
+
+  for (const line of content.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as Partial<LogEntry>;
+      if (
+        typeof entry.timestamp !== "string" ||
+        typeof entry.source !== "string" ||
+        !entry.source.startsWith("grok-honcho:") ||
+        (cwd && entry.cwd !== cwd)
+      ) {
+        continue;
+      }
+
+      health.lastActivityAt = entry.timestamp;
+      if (entry.source === "grok-honcho:session-start") health.lastSessionStartAt = entry.timestamp;
+      if (entry.source === "grok-honcho:user-prompt") health.lastUserPromptAt = entry.timestamp;
+      if (entry.source === "grok-honcho:stop") health.lastStopAt = entry.timestamp;
+    } catch {
+      // Ignore malformed/shared log lines.
+    }
+  }
+
+  return health;
+}
+
+export function getHookHealth(cwd?: string): HookHealth {
+  try {
+    return parseHookHealth(readFileSync(LOG_FILE, "utf-8"), cwd);
+  } catch {
+    return parseHookHealth("", cwd);
+  }
 }

@@ -20,6 +20,7 @@ import {
   coerceBoolean,
   getHonchoClientOptions,
   getSessionName,
+  getGitBranch,
   getConfigPath,
   configExists,
   getDetectedHost,
@@ -35,6 +36,7 @@ import {
   type ObservationMode,
 } from "../config.js";
 import { getLastActiveCwd } from "../cache.js";
+import { getHookHealth, getLogPath } from "../log.js";
 
 const DIALECTIC_TIMEOUT_MS = 120_000;
 
@@ -71,8 +73,10 @@ function handleGetConfig(cwd: string) {
     }
   }
 
-  const sessionName = cfg ? getSessionName(cwd) : null;
+  const branch = cfg?.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+  const sessionName = cfg ? getSessionName(cwd, undefined, cfg, branch) : null;
   const endpointInfo = cfg ? getEndpointInfo(cfg) : null;
+  const hookHealth = getHookHealth(cwd);
 
   const resolved = cfg
     ? {
@@ -117,6 +121,11 @@ function handleGetConfig(cwd: string) {
     if (process.env[envVar]) {
       warnings.push(`${field} may be shadowed by ${envVar}`);
     }
+  }
+  if (cfg?.enabled !== false && hookHealth.lastActivityAt === null) {
+    warnings.push(
+      "No plugin hook activity found for this project. In Grok, open /hooks and press r, then retry a turn.",
+    );
   }
 
   return {
@@ -468,6 +477,7 @@ export async function runMcpServer(): Promise<void> {
     if (name === "get_config") return handleGetConfig(cwd);
     if (name === "set_config") return handleSetConfig((args ?? {}) as Record<string, unknown>);
 
+    const activeConfig: HonchoRuntimeConfig | null = loadConfig();
     if (!activeConfig) {
       return {
         content: [

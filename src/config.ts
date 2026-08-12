@@ -531,15 +531,23 @@ export function getKnownHosts(): string[] {
 }
 
 export function getPluginVersion(): string {
-  const root = process.env.GROK_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT;
-  if (!root) return "0.1.0";
-  try {
-    const raw = readFileSync(join(root, "plugin.json"), "utf-8");
-    const version = (JSON.parse(raw) as { version?: unknown }).version;
-    return typeof version === "string" && version ? version : "0.1.0";
-  } catch {
-    return "0.1.0";
+  const roots = [
+    process.env.GROK_PLUGIN_ROOT,
+    process.env.CLAUDE_PLUGIN_ROOT,
+    join(import.meta.dir, ".."),
+    join(import.meta.dir, "../.."),
+  ];
+  for (const root of roots) {
+    if (!root) continue;
+    try {
+      const raw = readFileSync(join(root, "plugin.json"), "utf-8");
+      const version = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof version === "string" && version) return version;
+    } catch {
+      // Try the next likely plugin root.
+    }
   }
+  return "unknown";
 }
 
 export function getDefaultWorkspace(host?: HonchoHost): string {
