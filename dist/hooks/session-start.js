@@ -15819,6 +15819,19 @@ function saveConfig(config) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function getGitBranch(cwd) {
+  try {
+    const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "ignore"
+    });
+    if (!result.success)
+      return;
+    return result.stdout.toString().trim() || undefined;
+  } catch {
+    return;
+  }
+}
 function deriveSessionName(strategy, cwd, opts = {}) {
   const usePrefix = opts.sessionPeerPrefix !== false;
   const peerPart = opts.peerName ? sanitizeForSessionName(opts.peerName) : "user";
@@ -16069,7 +16082,8 @@ async function handleSessionStart() {
     const hook = normalizeHookInput(raw);
     const cwd = resolveCwd(hook);
     const instanceId = hook.sessionId;
-    const sessionName = getSessionName(cwd, instanceId);
+    const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
     logHook("session-start", `Starting session in ${cwd}`);
     logFlow("init", `workspace: ${config.workspace}, peers: ${config.peerName}/${config.aiPeer}`);

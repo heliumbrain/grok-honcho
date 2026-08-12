@@ -20,6 +20,7 @@ import {
   coerceBoolean,
   getHonchoClientOptions,
   getSessionName,
+  getGitBranch,
   getConfigPath,
   configExists,
   getDetectedHost,
@@ -35,6 +36,7 @@ import {
   type ObservationMode,
 } from "../config.js";
 import { getLastActiveCwd } from "../cache.js";
+import { getHookHealth, getLogPath } from "../log.js";
 
 const DIALECTIC_TIMEOUT_MS = 120_000;
 
@@ -71,8 +73,10 @@ function handleGetConfig(cwd: string) {
     }
   }
 
-  const sessionName = cfg ? getSessionName(cwd) : null;
+  const branch = cfg?.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+  const sessionName = cfg ? getSessionName(cwd, undefined, cfg, branch) : null;
   const endpointInfo = cfg ? getEndpointInfo(cfg) : null;
+  const hookHealth = getHookHealth(cwd);
 
   const resolved = cfg
     ? {
@@ -118,6 +122,11 @@ function handleGetConfig(cwd: string) {
       warnings.push(`${field} may be shadowed by ${envVar}`);
     }
   }
+  if (cfg?.enabled !== false && hookHealth.lastActivityAt === null) {
+    warnings.push(
+      "No plugin hook activity found for this project. In Grok, open /hooks and press r, then retry a turn.",
+    );
+  }
 
   return {
     content: [
@@ -128,10 +137,11 @@ function handleGetConfig(cwd: string) {
             resolved,
             current,
             host: { detected: host, hasHostsBlock: !!rawFile.hosts, otherHosts },
+            hookHealth: { ...hookHealth, logPath: getLogPath() },
             warnings,
             configPath: cfgPath,
             configExists: cfgExists,
-            plugin: "grok-honcho",
+            plugin: { name: "grok-honcho", version: getPluginVersion() },
           },
           null,
           2,
@@ -339,8 +349,6 @@ export async function runMcpServer(): Promise<void> {
     { capabilities: { tools: {} } },
   );
 
-  const activeConfig: HonchoRuntimeConfig | null = config;
-
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
@@ -468,12 +476,24 @@ export async function runMcpServer(): Promise<void> {
     if (name === "get_config") return handleGetConfig(cwd);
     if (name === "set_config") return handleSetConfig((args ?? {}) as Record<string, unknown>);
 
+    const activeConfig: HonchoRuntimeConfig | null = loadConfig();
     if (!activeConfig) {
       return {
         content: [
           {
             type: "text" as const,
             text: "Error: Honcho not configured. Set apiKey in ~/.honcho/config.json or HONCHO_API_KEY.",
+          },
+        ],
+        isError: true,
+      };
+    }
+    if (activeConfig.enabled === false) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Error: Honcho is disabled. Use set_config to enable it.",
           },
         ],
         isError: true,
@@ -523,7 +543,9 @@ export async function runMcpServer(): Promise<void> {
       }
     }
 
-    const sessionName = getSessionName(cwd);
+    const branch =
+      activeConfig.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, undefined, activeConfig, branch);
 
     try {
       const session = await honcho.session(sessionName);

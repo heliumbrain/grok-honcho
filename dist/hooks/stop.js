@@ -15762,6 +15762,19 @@ function mergeWithEnvVars(config) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function getGitBranch(cwd) {
+  try {
+    const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "ignore"
+    });
+    if (!result.success)
+      return;
+    return result.stdout.toString().trim() || undefined;
+  } catch {
+    return;
+  }
+}
 function deriveSessionName(strategy, cwd, opts = {}) {
   const usePrefix = opts.sessionPeerPrefix !== false;
   const peerPart = opts.peerName ? sanitizeForSessionName(opts.peerName) : "user";
@@ -16100,7 +16113,8 @@ async function handleStop() {
     }
     const cwd = resolveCwd(hook);
     const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
-    const sessionName = getSessionName(cwd, instanceId);
+    const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
     const { text, source } = extractAssistantText(hook, (path) => {
       if (!path || !existsSync4(path))

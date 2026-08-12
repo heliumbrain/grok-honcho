@@ -7,6 +7,7 @@ import { Honcho, Session, Peer } from "@honcho-ai/sdk";
 import {
   loadConfig,
   getSessionName,
+  getGitBranch,
   getHonchoClientOptions,
   isPluginEnabled,
   getCachedStdin,
@@ -47,7 +48,8 @@ export async function handleUserPrompt(): Promise<void> {
 
     const cwd = resolveCwd(hook);
     const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
-    const sessionName = getSessionName(cwd, instanceId);
+    const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
 
     logHook("user-prompt", `Prompt received (${prompt.length} chars)`);

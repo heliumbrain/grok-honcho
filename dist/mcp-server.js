@@ -29650,7 +29650,7 @@ class StdioServerTransport {
 
 // src/mcp/server.ts
 var import_sdk = __toESM(require_dist2(), 1);
-import { readFileSync as readFileSync3 } from "fs";
+import { readFileSync as readFileSync4 } from "fs";
 
 // src/config.ts
 import { homedir } from "os";
@@ -29872,6 +29872,19 @@ function saveRootField(field, value) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function getGitBranch(cwd) {
+  try {
+    const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "ignore"
+    });
+    if (!result.success)
+      return;
+    return result.stdout.toString().trim() || undefined;
+  } catch {
+    return;
+  }
+}
 function deriveSessionName(strategy, cwd, opts = {}) {
   const usePrefix = opts.sessionPeerPrefix !== false;
   const peerPart = opts.peerName ? sanitizeForSessionName(opts.peerName) : "user";
@@ -29960,16 +29973,23 @@ function getKnownHosts() {
   }
 }
 function getPluginVersion() {
-  const root = process.env.GROK_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT;
-  if (!root)
-    return "0.1.0";
-  try {
-    const raw = readFileSync(join(root, "plugin.json"), "utf-8");
-    const version2 = JSON.parse(raw).version;
-    return typeof version2 === "string" && version2 ? version2 : "0.1.0";
-  } catch {
-    return "0.1.0";
+  const roots = [
+    process.env.GROK_PLUGIN_ROOT,
+    process.env.CLAUDE_PLUGIN_ROOT,
+    join(import.meta.dir, ".."),
+    join(import.meta.dir, "../..")
+  ];
+  for (const root of roots) {
+    if (!root)
+      continue;
+    try {
+      const raw = readFileSync(join(root, "plugin.json"), "utf-8");
+      const version2 = JSON.parse(raw).version;
+      if (typeof version2 === "string" && version2)
+        return version2;
+    } catch {}
   }
+  return "unknown";
 }
 function coerceBoolean(value) {
   if (typeof value === "string") {
@@ -30012,6 +30032,51 @@ function getLastActiveCwd() {
   return latest?.cwd || null;
 }
 
+// src/log.ts
+import { homedir as homedir3 } from "os";
+import { join as join3 } from "path";
+import { existsSync as existsSync3, appendFileSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
+var CACHE_DIR2 = join3(homedir3(), ".honcho");
+var LOG_FILE = join3(CACHE_DIR2, "activity.log");
+var MAX_LOG_SIZE = 100 * 1024;
+function getLogPath() {
+  return LOG_FILE;
+}
+function parseHookHealth(content, cwd) {
+  const health = {
+    lastActivityAt: null,
+    lastSessionStartAt: null,
+    lastUserPromptAt: null,
+    lastStopAt: null
+  };
+  for (const line of content.split(`
+`)) {
+    if (!line.trim())
+      continue;
+    try {
+      const entry = JSON.parse(line);
+      if (typeof entry.timestamp !== "string" || typeof entry.source !== "string" || !entry.source.startsWith("grok-honcho:") || cwd && entry.cwd !== cwd) {
+        continue;
+      }
+      health.lastActivityAt = entry.timestamp;
+      if (entry.source === "grok-honcho:session-start")
+        health.lastSessionStartAt = entry.timestamp;
+      if (entry.source === "grok-honcho:user-prompt")
+        health.lastUserPromptAt = entry.timestamp;
+      if (entry.source === "grok-honcho:stop")
+        health.lastStopAt = entry.timestamp;
+    } catch {}
+  }
+  return health;
+}
+function getHookHealth(cwd) {
+  try {
+    return parseHookHealth(readFileSync3(LOG_FILE, "utf-8"), cwd);
+  } catch {
+    return parseHookHealth("", cwd);
+  }
+}
+
 // src/mcp/server.ts
 var DIALECTIC_TIMEOUT_MS = 120000;
 var DANGEROUS_FIELDS = new Set(["workspace", "endpoint.environment", "endpoint.baseUrl"]);
@@ -30036,11 +30101,13 @@ function handleGetConfig(cwd) {
   let rawFile = {};
   if (cfgExists) {
     try {
-      rawFile = JSON.parse(readFileSync3(cfgPath, "utf-8"));
+      rawFile = JSON.parse(readFileSync4(cfgPath, "utf-8"));
     } catch {}
   }
-  const sessionName = cfg ? getSessionName(cwd) : null;
+  const branch = cfg?.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+  const sessionName = cfg ? getSessionName(cwd, undefined, cfg, branch) : null;
   const endpointInfo = cfg ? getEndpointInfo(cfg) : null;
+  const hookHealth = getHookHealth(cwd);
   const resolved = cfg ? {
     peerName: cfg.peerName,
     aiPeer: cfg.aiPeer,
@@ -30079,6 +30146,9 @@ function handleGetConfig(cwd) {
       warnings.push(`${field} may be shadowed by ${envVar}`);
     }
   }
+  if (cfg?.enabled !== false && hookHealth.lastActivityAt === null) {
+    warnings.push("No plugin hook activity found for this project. In Grok, open /hooks and press r, then retry a turn.");
+  }
   return {
     content: [
       {
@@ -30087,10 +30157,11 @@ function handleGetConfig(cwd) {
           resolved,
           current,
           host: { detected: host, hasHostsBlock: !!rawFile.hosts, otherHosts },
+          hookHealth: { ...hookHealth, logPath: getLogPath() },
           warnings,
           configPath: cfgPath,
           configExists: cfgExists,
-          plugin: "grok-honcho"
+          plugin: { name: "grok-honcho", version: getPluginVersion() }
         }, null, 2)
       }
     ]
@@ -30280,7 +30351,6 @@ async function runMcpServer() {
     console.error("[grok-honcho] MCP: no config (need apiKey in ~/.honcho/config.json or HONCHO_API_KEY)");
   }
   const server = new Server({ name: "honcho", version: getPluginVersion() }, { capabilities: { tools: {} } });
-  const activeConfig = config2;
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
       {
@@ -30405,12 +30475,24 @@ async function runMcpServer() {
       return handleGetConfig(cwd);
     if (name === "set_config")
       return handleSetConfig(args ?? {});
+    const activeConfig = loadConfig();
     if (!activeConfig) {
       return {
         content: [
           {
             type: "text",
             text: "Error: Honcho not configured. Set apiKey in ~/.honcho/config.json or HONCHO_API_KEY."
+          }
+        ],
+        isError: true
+      };
+    }
+    if (activeConfig.enabled === false) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "Error: Honcho is disabled. Use set_config to enable it."
           }
         ],
         isError: true
@@ -30450,7 +30532,8 @@ async function runMcpServer() {
         };
       }
     }
-    const sessionName = getSessionName(cwd);
+    const branch = activeConfig.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, undefined, activeConfig, branch);
     try {
       const session = await honcho.session(sessionName);
       const observationMode = getObservationMode(activeConfig);
