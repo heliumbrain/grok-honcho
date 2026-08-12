@@ -107,6 +107,29 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 
+Config is reloaded from disk on every tool call — `set_config` changes (including `enabled`) take effect immediately, no restart required. When `enabled=false`, every tool except `get_config`/`set_config` returns an error instead of reaching Honcho, so you can always re-enable via `set_config`.
+
+### `get_config` response
+
+```jsonc
+{
+  "resolved": { /* peerName, aiPeer, workspace, endpoint, sessionStrategy, enabled, saveMessages, … */ },
+  "current": { "workspace": "…", "session": "alice-myapp", "peerName": "alice", "aiPeer": "grok", "host": "grok", "cwd": "…" },
+  "host": { "detected": "grok", "hasHostsBlock": true, "otherHosts": {} },
+  "hookHealth": {
+    "lastActivityAt": "2026-08-12T10:02:00.000Z",   // null if no hook has run for this project yet
+    "lastSessionStartAt": "…", "lastUserPromptAt": "…", "lastStopAt": "…",
+    "logPath": "/home/alice/.honcho/activity.log"
+  },
+  "warnings": [ /* e.g. "No plugin hook activity found for this project. In Grok, open /hooks and press r, then retry a turn." */ ],
+  "configPath": "/home/alice/.honcho/config.json",
+  "configExists": true,
+  "plugin": { "name": "grok-honcho", "version": "0.1.4" }
+}
+```
+
+`hookHealth.lastActivityAt === null` means hooks haven't fired for this project yet — MCP working does not prove hooks are bound (see [Activate hooks after install](#activate-hooks-after-install-grok-host-quirk)). `get_config` surfaces the `/hooks` → `r` reminder as a warning automatically in that case.
+
 ## Verification
 
 ```bash
