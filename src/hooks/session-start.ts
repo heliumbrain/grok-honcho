@@ -7,6 +7,7 @@ import { Honcho } from "@honcho-ai/sdk";
 import {
   loadConfig,
   getSessionName,
+  getGitBranch,
   getSessionForPath,
   setSessionForPath,
   getHonchoClientOptions,
@@ -49,7 +50,8 @@ export async function handleSessionStart(): Promise<void> {
     const hook = normalizeHookInput(raw);
     const cwd = resolveCwd(hook);
     const instanceId = hook.sessionId;
-    const sessionName = getSessionName(cwd, instanceId);
+    const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
 
     logHook("session-start", `Starting session in ${cwd}`);

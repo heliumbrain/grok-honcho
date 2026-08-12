@@ -2,9 +2,13 @@
  * Config + session naming tests against real shipped functions.
  */
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import {
   deriveSessionName,
   sanitizeForSessionName,
+  getGitBranch,
   resolveConfigFromJson,
   getSessionName,
   getHonchoBaseUrlForEndpoint,
@@ -46,6 +50,47 @@ describe("session naming", () => {
       branch: "feat/x",
     });
     expect(name).toBe("nils-foo-feat-x");
+  });
+
+  test("git-branch resolves the current branch", () => {
+    const repo = mkdtempSync(join(tmpdir(), "grok-honcho-git-"));
+    try {
+      expect(Bun.spawnSync(["git", "init", "-b", "main", repo]).success).toBe(true);
+      expect(Bun.spawnSync(["git", "-C", repo, "checkout", "-b", "feat/memory"]).success).toBe(
+        true,
+      );
+      expect(getGitBranch(repo)).toBe("feat/memory");
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  test("git-branch falls back outside repos and on detached HEAD", () => {
+    const repo = mkdtempSync(join(tmpdir(), "grok-honcho-git-"));
+    try {
+      expect(getGitBranch(tmpdir())).toBeUndefined();
+      expect(Bun.spawnSync(["git", "init", "-b", "main", repo]).success).toBe(true);
+      writeFileSync(join(repo, "fixture"), "fixture");
+      expect(Bun.spawnSync(["git", "-C", repo, "add", "fixture"]).success).toBe(true);
+      expect(
+        Bun.spawnSync([
+          "git",
+          "-C",
+          repo,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "-m",
+          "fixture",
+        ]).success,
+      ).toBe(true);
+      expect(Bun.spawnSync(["git", "-C", repo, "checkout", "--detach", "HEAD"]).success).toBe(true);
+      expect(getGitBranch(repo)).toBeUndefined();
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

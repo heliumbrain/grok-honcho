@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from "fs";
 import {
   loadConfig,
   getSessionName,
+  getGitBranch,
   getHonchoClientOptions,
   isPluginEnabled,
   getCachedStdin,
@@ -49,7 +50,8 @@ export async function handleStop(): Promise<void> {
 
     const cwd = resolveCwd(hook);
     const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
-    const sessionName = getSessionName(cwd, instanceId);
+    const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+    const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
 
     const { text, source } = extractAssistantText(hook, (path) => {

@@ -380,6 +380,19 @@ export function sanitizeForSessionName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
 
+export function getGitBranch(cwd: string): string | undefined {
+  try {
+    const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (!result.success) return undefined;
+    return result.stdout.toString().trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function deriveSessionName(
   strategy: SessionStrategy,
   cwd: string,
