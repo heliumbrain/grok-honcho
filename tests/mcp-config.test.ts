@@ -65,7 +65,7 @@ describe("MCP config", () => {
         statusResult.content[0]?.type === "text" ? (statusResult.content[0].text ?? "{}") : "{}";
       const config = JSON.parse(text);
       expect(config.resolved.enabled).toBe(false);
-      expect(config.plugin).toEqual({ name: "grok-honcho", version: "0.1.3" });
+      expect(config.plugin).toEqual({ name: "grok-honcho", version: "0.1.4" });
     } finally {
       await client.close();
     }

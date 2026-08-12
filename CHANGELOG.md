@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4] — 2026-08-12
+
+- `git-branch` session strategy now resolves the current branch via `git branch --show-current` and includes it in the session name; falls back to per-directory naming outside a repo or on detached HEAD
+- `get_config` now reports hook-activity health (`hookHealth`: last SessionStart / UserPromptSubmit / Stop timestamps + log path), the resolved plugin version (`plugin: { name, version }`), and a warning to run `/hooks` → `r` when no hook activity is found for the current project
+- MCP config is reloaded on every tool call instead of once at server startup, so `set_config` changes (including `enabled`) take effect immediately without a Grok restart
+- MCP tools other than `get_config`/`set_config` now return an error when `enabled=false`, instead of silently continuing to reach Honcho
+- CI now runs `bun run build` and fails if the committed `dist/` bundles differ, so stale prebuilt bundles can't ship
+
 ## [0.1.3] — 2026-08-11
 
 - Zero-install runtime: ship prebuilt `dist/` bundles (MCP + hooks) — no manual `bun install` after plugin install
