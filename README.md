@@ -103,7 +103,7 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 
 ## MCP tools
 
-`get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `get_context`, `get_representation`.
+`get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`.
 
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 
