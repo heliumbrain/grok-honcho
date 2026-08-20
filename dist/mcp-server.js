@@ -29654,8 +29654,8 @@ import { readFileSync as readFileSync4 } from "fs";
 
 // src/config.ts
 import { homedir } from "os";
-import { basename, join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { basename, join, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 var CONFIG_DIR = join(homedir(), ".honcho");
 var CONFIG_FILE = join(CONFIG_DIR, "config.json");
 var HONCHO_BASE_URLS = {
@@ -29872,6 +29872,26 @@ function saveRootField(field, value) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function normalizeCwd(cwd) {
+  const resolved = resolve(cwd);
+  try {
+    return existsSync(resolved) ? realpathSync(resolved) : resolved;
+  } catch {
+    return resolved;
+  }
+}
+function sessionOverrideFor(cwd, sessions) {
+  const key = normalizeCwd(cwd);
+  if (sessions[key])
+    return sessions[key];
+  if (sessions[cwd])
+    return sessions[cwd];
+  for (const [stored, name] of Object.entries(sessions)) {
+    if (normalizeCwd(stored) === key)
+      return name;
+  }
+  return null;
+}
 function getGitBranch(cwd) {
   try {
     const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
@@ -29912,17 +29932,18 @@ function getSessionForPath(cwd, config2) {
   const cfg = config2 === undefined ? loadConfig() : config2;
   if (!cfg?.sessions)
     return null;
-  return cfg.sessions[cwd] || null;
+  return sessionOverrideFor(cwd, cfg.sessions);
 }
 function getSessionName(cwd, instanceId, config2, branch) {
   const cfg = config2 === undefined ? loadConfig() : config2;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
+  const path = normalizeCwd(cwd);
   if (strategy === "per-directory") {
-    const override = getSessionForPath(cwd, cfg);
+    const override = getSessionForPath(path, cfg);
     if (override)
       return override;
   }
-  return deriveSessionName(strategy, cwd, {
+  return deriveSessionName(strategy, path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
@@ -30029,7 +30050,7 @@ function getLastActiveCwd() {
       latest = { cwd, updatedAt: entry.updatedAt };
     }
   }
-  return latest?.cwd || null;
+  return latest ? normalizeCwd(latest.cwd) : null;
 }
 
 // src/log.ts
@@ -30091,7 +30112,7 @@ var ENV_SHADOW_MAP = {
   "endpoint.environment": "HONCHO_ENDPOINT"
 };
 function resolveCwdForMcp() {
-  return getLastActiveCwd() || process.cwd();
+  return normalizeCwd(getLastActiveCwd() || process.cwd());
 }
 function handleGetConfig(cwd) {
   const cfg = loadConfig();
@@ -30205,12 +30226,15 @@ function handleSetConfig(args) {
     };
   }
   let previousValue;
+  const warnings = [];
   switch (field) {
     case "peerName":
       previousValue = cfg.peerName;
       cfg.peerName = String(value);
       saveRootField("peerName", cfg.peerName);
-      cfg.sessions = {};
+      if (String(value) !== String(previousValue) && Object.keys(cfg.sessions ?? {}).length > 0) {
+        warnings.push(`${Object.keys(cfg.sessions ?? {}).length} session override(s) kept under their existing names; only newly created sessions use the new naming. Use sessions.set/sessions.remove to adjust individual mappings.`);
+      }
       break;
     case "aiPeer":
       previousValue = cfg.aiPeer;
@@ -30238,16 +30262,24 @@ function handleSetConfig(args) {
       cfg.endpoint.environment = undefined;
       saveRootField("endpoint", cfg.endpoint);
       break;
-    case "sessionStrategy":
-      previousValue = cfg.sessionStrategy ?? "per-directory";
+    case "sessionStrategy": {
+      const prevStrategy = cfg.sessionStrategy ?? "per-directory";
+      previousValue = prevStrategy;
       cfg.sessionStrategy = String(value);
-      cfg.sessions = {};
+      if (String(value) !== prevStrategy && String(value) !== "per-directory" && Object.keys(cfg.sessions ?? {}).length > 0) {
+        warnings.push(`${Object.keys(cfg.sessions ?? {}).length} session override(s) kept but inactive: overrides only apply under the per-directory strategy.`);
+      }
       break;
-    case "sessionPeerPrefix":
-      previousValue = cfg.sessionPeerPrefix !== false;
+    }
+    case "sessionPeerPrefix": {
+      const prevPrefix = cfg.sessionPeerPrefix !== false;
+      previousValue = prevPrefix;
       cfg.sessionPeerPrefix = coerceBoolean(value);
-      cfg.sessions = {};
+      if (cfg.sessionPeerPrefix !== prevPrefix && Object.keys(cfg.sessions ?? {}).length > 0) {
+        warnings.push(`${Object.keys(cfg.sessions ?? {}).length} session override(s) kept under their existing names; only newly created sessions use the new naming. Use sessions.set/sessions.remove to adjust individual mappings.`);
+      }
       break;
+    }
     case "globalOverride":
       previousValue = cfg.globalOverride ?? false;
       cfg.globalOverride = coerceBoolean(value);
@@ -30288,8 +30320,11 @@ function handleSetConfig(args) {
       }
       if (!cfg.sessions)
         cfg.sessions = {};
-      previousValue = cfg.sessions[obj.path] ?? null;
-      cfg.sessions[obj.path] = obj.name;
+      const path = normalizeCwd(obj.path);
+      previousValue = cfg.sessions[path] ?? cfg.sessions[obj.path] ?? null;
+      cfg.sessions[path] = obj.name;
+      if (obj.path !== path)
+        delete cfg.sessions[obj.path];
       break;
     }
     case "sessions.remove": {
@@ -30307,8 +30342,86 @@ function handleSetConfig(args) {
       }
       if (!cfg.sessions)
         cfg.sessions = {};
-      previousValue = cfg.sessions[obj.path] ?? null;
+      const path = normalizeCwd(obj.path);
+      previousValue = cfg.sessions[path] ?? cfg.sessions[obj.path] ?? null;
+      delete cfg.sessions[path];
       delete cfg.sessions[obj.path];
+      for (const stored of Object.keys(cfg.sessions)) {
+        if (normalizeCwd(stored) === path)
+          delete cfg.sessions[stored];
+      }
+      break;
+    }
+    case "globalOverride":
+      previousValue = cfg.globalOverride ?? false;
+      cfg.globalOverride = coerceBoolean(value);
+      saveRootField("globalOverride", cfg.globalOverride);
+      break;
+    case "enabled":
+      previousValue = cfg.enabled;
+      cfg.enabled = coerceBoolean(value);
+      break;
+    case "logging":
+      previousValue = cfg.logging;
+      cfg.logging = coerceBoolean(value);
+      break;
+    case "saveMessages":
+      previousValue = cfg.saveMessages;
+      cfg.saveMessages = coerceBoolean(value);
+      break;
+    case "reasoningLevel":
+      previousValue = cfg.reasoningLevel ?? "medium";
+      cfg.reasoningLevel = String(value);
+      break;
+    case "observationMode":
+      previousValue = cfg.observationMode ?? "unified";
+      cfg.observationMode = String(value);
+      break;
+    case "sessions.set": {
+      const obj = value;
+      if (typeof obj?.path !== "string" || typeof obj?.name !== "string") {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ success: false, error: "sessions.set requires {path, name}" })
+            }
+          ],
+          isError: true
+        };
+      }
+      if (!cfg.sessions)
+        cfg.sessions = {};
+      const path = normalizeCwd(obj.path);
+      previousValue = cfg.sessions[path] ?? cfg.sessions[obj.path] ?? null;
+      cfg.sessions[path] = obj.name;
+      if (obj.path !== path)
+        delete cfg.sessions[obj.path];
+      break;
+    }
+    case "sessions.remove": {
+      const obj = value;
+      if (typeof obj?.path !== "string") {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ success: false, error: "sessions.remove requires {path}" })
+            }
+          ],
+          isError: true
+        };
+      }
+      if (!cfg.sessions)
+        cfg.sessions = {};
+      const path = normalizeCwd(obj.path);
+      previousValue = cfg.sessions[path] ?? cfg.sessions[obj.path] ?? null;
+      delete cfg.sessions[path];
+      delete cfg.sessions[obj.path];
+      for (const stored of Object.keys(cfg.sessions)) {
+        if (normalizeCwd(stored) === path)
+          delete cfg.sessions[stored];
+      }
       break;
     }
     default:
@@ -30332,6 +30445,7 @@ function handleSetConfig(args) {
           field,
           previousValue,
           newValue: value,
+          ...warnings.length ? { warnings } : {},
           resolved: {
             peerName: cfg.peerName,
             aiPeer: cfg.aiPeer,
