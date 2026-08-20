@@ -7,8 +7,8 @@
  */
 
 import { homedir } from "os";
-import { basename, join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { basename, join, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 
 export type SessionStrategy = "per-directory" | "git-branch" | "chat-instance";
 export type HonchoEnvironment = "production" | "local";
@@ -380,6 +380,26 @@ export function sanitizeForSessionName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
 
+/** Canonical path for sessions-map / cache keys (`/proj/` == `/proj`). */
+export function normalizeCwd(cwd: string): string {
+  const resolved = resolve(cwd);
+  try {
+    return existsSync(resolved) ? realpathSync(resolved) : resolved;
+  } catch {
+    return resolved;
+  }
+}
+
+function sessionOverrideFor(cwd: string, sessions: Record<string, string>): string | null {
+  const key = normalizeCwd(cwd);
+  if (sessions[key]) return sessions[key];
+  if (sessions[cwd]) return sessions[cwd];
+  for (const [stored, name] of Object.entries(sessions)) {
+    if (normalizeCwd(stored) === key) return name;
+  }
+  return null;
+}
+
 export function getGitBranch(cwd: string): string | undefined {
   try {
     const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
@@ -430,7 +450,7 @@ export function deriveSessionName(
 export function getSessionForPath(cwd: string, config?: HonchoRuntimeConfig | null): string | null {
   const cfg = config === undefined ? loadConfig() : config;
   if (!cfg?.sessions) return null;
-  return cfg.sessions[cwd] || null;
+  return sessionOverrideFor(cwd, cfg.sessions);
 }
 
 /**
@@ -445,13 +465,14 @@ export function getSessionName(
 ): string {
   const cfg = config === undefined ? loadConfig() : config;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
+  const path = normalizeCwd(cwd);
 
   if (strategy === "per-directory") {
-    const override = getSessionForPath(cwd, cfg);
+    const override = getSessionForPath(path, cfg);
     if (override) return override;
   }
 
-  return deriveSessionName(strategy, cwd, {
+  return deriveSessionName(strategy, path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
@@ -463,7 +484,9 @@ export function setSessionForPath(cwd: string, sessionName: string): void {
   const config = loadConfig();
   if (!config) return;
   if (!config.sessions) config.sessions = {};
-  config.sessions[cwd] = sessionName;
+  const key = normalizeCwd(cwd);
+  config.sessions[key] = sessionName;
+  if (cwd !== key) delete config.sessions[cwd];
   saveConfig(config);
 }
 

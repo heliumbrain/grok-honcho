@@ -14,6 +14,7 @@ import {
   getHonchoBaseUrlForEndpoint,
   detectHost,
   getDefaultAiPeer,
+  normalizeCwd,
 } from "../src/config.js";
 
 describe("session naming", () => {
@@ -42,6 +43,34 @@ describe("session naming", () => {
     expect(cfg).not.toBeNull();
     expect(getSessionName("/tmp/proj", undefined, cfg)).toBe("custom-session");
     expect(getSessionName("/tmp/other", undefined, cfg)).toBe("nils-other");
+  });
+
+  test("trailing slash hits the same session override", () => {
+    const cfg = resolveConfigFromJson(
+      JSON.stringify({
+        apiKey: "test-key-not-real",
+        peerName: "nils",
+        sessions: { "/tmp/proj": "custom-session" },
+        sessionStrategy: "per-directory",
+      }),
+      "grok",
+    );
+    expect(normalizeCwd("/tmp/proj/")).toBe(normalizeCwd("/tmp/proj"));
+    expect(getSessionName("/tmp/proj/", undefined, cfg)).toBe("custom-session");
+    expect(getSessionName("/tmp/proj", undefined, cfg)).toBe("custom-session");
+  });
+
+  test("stored trailing-slash override still matches a normalized cwd", () => {
+    const cfg = resolveConfigFromJson(
+      JSON.stringify({
+        apiKey: "test-key-not-real",
+        peerName: "nils",
+        sessions: { "/tmp/proj/": "legacy-session" },
+        sessionStrategy: "per-directory",
+      }),
+      "grok",
+    );
+    expect(getSessionName("/tmp/proj", undefined, cfg)).toBe("legacy-session");
   });
 
   test("git-branch includes branch", () => {

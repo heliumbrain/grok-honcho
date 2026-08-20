@@ -3,8 +3,8 @@
 
 // src/config.ts
 import { homedir } from "os";
-import { basename, join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { basename, join, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 var CONFIG_DIR = join(homedir(), ".honcho");
 var CONFIG_FILE = join(CONFIG_DIR, "config.json");
 var DEFAULT_WORKSPACE = {
@@ -176,6 +176,26 @@ function mergeWithEnvVars(config) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function normalizeCwd(cwd) {
+  const resolved = resolve(cwd);
+  try {
+    return existsSync(resolved) ? realpathSync(resolved) : resolved;
+  } catch {
+    return resolved;
+  }
+}
+function sessionOverrideFor(cwd, sessions) {
+  const key = normalizeCwd(cwd);
+  if (sessions[key])
+    return sessions[key];
+  if (sessions[cwd])
+    return sessions[cwd];
+  for (const [stored, name] of Object.entries(sessions)) {
+    if (normalizeCwd(stored) === key)
+      return name;
+  }
+  return null;
+}
 function deriveSessionName(strategy, cwd, opts = {}) {
   const usePrefix = opts.sessionPeerPrefix !== false;
   const peerPart = opts.peerName ? sanitizeForSessionName(opts.peerName) : "user";
@@ -203,17 +223,18 @@ function getSessionForPath(cwd, config) {
   const cfg = config === undefined ? loadConfig() : config;
   if (!cfg?.sessions)
     return null;
-  return cfg.sessions[cwd] || null;
+  return sessionOverrideFor(cwd, cfg.sessions);
 }
 function getSessionName(cwd, instanceId, config, branch) {
   const cfg = config === undefined ? loadConfig() : config;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
+  const path = normalizeCwd(cwd);
   if (strategy === "per-directory") {
-    const override = getSessionForPath(cwd, cfg);
+    const override = getSessionForPath(path, cfg);
     if (override)
       return override;
   }
-  return deriveSessionName(strategy, cwd, {
+  return deriveSessionName(strategy, path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
@@ -289,7 +310,17 @@ function loadIdCache() {
 }
 function getInstanceIdForCwd(cwd) {
   const cache = loadIdCache();
-  return cache.sessions?.[cwd]?.instanceId ?? null;
+  if (!cache.sessions)
+    return null;
+  const key = normalizeCwd(cwd);
+  const direct = cache.sessions[key] ?? cache.sessions[cwd];
+  if (direct)
+    return direct.instanceId ?? null;
+  for (const [stored, entry] of Object.entries(cache.sessions)) {
+    if (normalizeCwd(stored) === key)
+      return entry.instanceId ?? null;
+  }
+  return null;
 }
 
 // src/log.ts
