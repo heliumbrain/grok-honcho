@@ -47,12 +47,20 @@ describe("MCP conclusions", () => {
       expect(search?.description ?? "").toContain("conclusions");
 
       const missingQuery = await client.callTool({ name: "query_conclusions", arguments: {} });
-      expect(missingQuery.isError).toBe(true);
-      expect(missingQuery.content[0]).toMatchObject({ type: "text", text: "Error: query required" });
+      const missingQueryResult = missingQuery as {
+        isError?: boolean;
+        content: Array<{ type: string; text?: string }>;
+      };
+      expect(missingQueryResult.isError).toBe(true);
+      expect(missingQueryResult.content[0]).toMatchObject({ type: "text", text: "Error: query required" });
 
       const missingId = await client.callTool({ name: "delete_conclusion", arguments: {} });
-      expect(missingId.isError).toBe(true);
-      expect(missingId.content[0]).toMatchObject({ type: "text", text: "Error: id required" });
+      const missingIdResult = missingId as {
+        isError?: boolean;
+        content: Array<{ type: string; text?: string }>;
+      };
+      expect(missingIdResult.isError).toBe(true);
+      expect(missingIdResult.content[0]).toMatchObject({ type: "text", text: "Error: id required" });
     } finally {
       await client.close();
     }
