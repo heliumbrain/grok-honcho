@@ -105,6 +105,8 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 
 `get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`.
 
+Skills: `setup`, `status`, `config`, `briefing`, `interview` (first-run preference capture via `chat` + `create_conclusion`).
+
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 
 Config is reloaded from disk on every tool call — `set_config` changes (including `enabled`) take effect immediately, no restart required. When `enabled=false`, every tool except `get_config`/`set_config` returns an error instead of reaching Honcho, so you can always re-enable via `set_config`.
