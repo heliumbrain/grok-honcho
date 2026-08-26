@@ -15870,7 +15870,7 @@ function getHonchoClientOptions(config) {
   };
 }
 
-// src/hooks/user-prompt.ts
+// src/hooks/post-tool-use.ts
 var import_sdk = __toESM(require_dist(), 1);
 
 // src/payload.ts
@@ -15921,116 +15921,13 @@ function normalizeHookInput(input) {
 function resolveCwd(input, fallback = process.cwd()) {
   return input.workspaceRoot || input.cwd || fallback;
 }
-var TRIVIAL_REPLY_PATTERN = /^(yes|no|ok|sure|thanks|y|n|yep|nope|yeah|nah|continue|go ahead|do it|proceed)$/i;
-var HARNESS_INJECTED_PATTERNS = [
-  /^<task-notification>/,
-  /^<local-command-stdout>/,
-  /^<command-name>/,
-  /^<command-message>/,
-  /^<system-reminder>/,
-  /^<bash-(stdout|stderr|input)>/,
-  /^<<[\w-]+>>$/
-];
-function isTerseReply(prompt) {
-  return TRIVIAL_REPLY_PATTERN.test(prompt.trim());
-}
-function isHarnessInjected(prompt) {
-  return HARNESS_INJECTED_PATTERNS.some((p) => p.test(prompt.trim()));
-}
-function shouldSaveUserPrompt(prompt) {
-  const t = prompt.trim();
-  if (!t)
-    return false;
-  if (isHarnessInjected(t))
-    return false;
-  return true;
-}
-
-// src/cache.ts
-import { homedir as homedir2 } from "os";
-import { join as join2 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
-var CACHE_DIR = join2(homedir2(), ".honcho");
-var ID_CACHE_FILE = join2(CACHE_DIR, "cache.json");
-var MAX_MESSAGE_SIZE = 25000;
-var HONCHO_MAX_BATCH = 50;
-function ensureCacheDir() {
-  if (!existsSync2(CACHE_DIR))
-    mkdirSync2(CACHE_DIR, { recursive: true });
-}
-function loadIdCache() {
-  ensureCacheDir();
-  if (!existsSync2(ID_CACHE_FILE))
-    return {};
-  try {
-    return JSON.parse(readFileSync2(ID_CACHE_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-function getInstanceIdForCwd(cwd) {
-  const cache = loadIdCache();
-  if (!cache.sessions)
-    return null;
-  const key = normalizeCwd(cwd);
-  const direct = cache.sessions[key] ?? cache.sessions[cwd];
-  if (direct)
-    return direct.instanceId ?? null;
-  for (const [stored, entry] of Object.entries(cache.sessions)) {
-    if (normalizeCwd(stored) === key)
-      return entry.instanceId ?? null;
-  }
-  return null;
-}
-function chunkContent(content, maxSize = MAX_MESSAGE_SIZE) {
-  if (content.length <= maxSize)
-    return [content];
-  const chunks = [];
-  let remaining = content;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxSize) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitIndex = remaining.lastIndexOf(`
-`, maxSize);
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = remaining.lastIndexOf(" ", maxSize);
-    }
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = maxSize;
-    }
-    chunks.push(remaining.slice(0, splitIndex));
-    remaining = remaining.slice(splitIndex).trimStart();
-  }
-  if (chunks.length > 1) {
-    return chunks.map((chunk, i) => `[Part ${i + 1}/${chunks.length}] ${chunk}`);
-  }
-  return chunks;
-}
-async function addMessagesBatched(session, messages, resolveFallback) {
-  let active = session;
-  let usedFallback = false;
-  for (let i = 0;i < messages.length; i += HONCHO_MAX_BATCH) {
-    const batch = messages.slice(i, i + HONCHO_MAX_BATCH);
-    try {
-      await active.addMessages(batch);
-    } catch (e) {
-      if (usedFallback || !resolveFallback)
-        throw e;
-      active = await resolveFallback(e);
-      usedFallback = true;
-      await active.addMessages(batch);
-    }
-  }
-}
 
 // src/log.ts
-import { homedir as homedir3 } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync3, appendFileSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
-var CACHE_DIR2 = join3(homedir3(), ".honcho");
-var LOG_FILE = join3(CACHE_DIR2, "activity.log");
+import { homedir as homedir2 } from "os";
+import { join as join2 } from "path";
+import { existsSync as existsSync2, appendFileSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+var CACHE_DIR = join2(homedir2(), ".honcho");
+var LOG_FILE = join2(CACHE_DIR, "activity.log");
 var MAX_LOG_SIZE = 100 * 1024;
 var currentCwd = null;
 var currentSession = null;
@@ -16039,8 +15936,8 @@ function setLogContext(cwd, session) {
   currentSession = session || null;
 }
 function ensureLogDir() {
-  if (!existsSync3(CACHE_DIR2))
-    mkdirSync3(CACHE_DIR2, { recursive: true });
+  if (!existsSync2(CACHE_DIR))
+    mkdirSync2(CACHE_DIR, { recursive: true });
 }
 function logActivity(level, source, message, data, options) {
   if (!isLoggingEnabled())
@@ -16060,12 +15957,12 @@ function logActivity(level, source, message, data, options) {
     plugin: "grok-honcho"
   };
   try {
-    if (existsSync3(LOG_FILE)) {
+    if (existsSync2(LOG_FILE)) {
       try {
         const stats = Bun.file(LOG_FILE).size;
         if (stats > MAX_LOG_SIZE) {
-          const content = readFileSync3(LOG_FILE, "utf-8");
-          writeFileSync3(LOG_FILE, content.slice(-50 * 1024));
+          const content = readFileSync2(LOG_FILE, "utf-8");
+          writeFileSync2(LOG_FILE, content.slice(-50 * 1024));
         }
       } catch {}
     }
@@ -16081,13 +15978,172 @@ function logApiCall(endpoint, method, details, timing, success) {
   logActivity("api", "honcho", msg, undefined, { timing, success });
 }
 
-// src/hooks/user-prompt.ts
-async function handleUserPrompt() {
+// src/redact.ts
+var DEFAULT_RULES = [
+  {
+    pattern: /\b(\w*(?:PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_?KEY|ACCESS_KEY|CREDENTIALS?)\w*)\s*=\s*("[^"]*"|'[^']*'|[^\s;|&"']+)/gi,
+    replacement: "$1=***"
+  },
+  {
+    pattern: /(--(?:password|passwd|pwd|token|api-?key|secret|auth)[= ])(?:"[^"]*"|'[^']*'|[^\s;|&"']+)/gi,
+    replacement: "$1***"
+  },
+  {
+    pattern: /(authorization:\s*(?:bearer|basic|token)\s+)[^\s"']+/gi,
+    replacement: "$1***"
+  },
+  {
+    pattern: /([a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:)[^@\s]+@/gi,
+    replacement: "$1***@"
+  },
+  {
+    pattern: /\b(?:hch[_-]?[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{16,}|(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|glpat-[A-Za-z0-9_-]{20,}|npm_[A-Za-z0-9]{36})\b/g,
+    replacement: "***"
+  }
+];
+function redactSecrets(text, extraPatterns) {
+  let result = text;
+  for (const rule of DEFAULT_RULES) {
+    result = result.replace(rule.pattern, rule.replacement);
+  }
+  for (const source of extraPatterns ?? []) {
+    try {
+      result = result.replace(new RegExp(source, "gi"), "***");
+    } catch {
+      continue;
+    }
+  }
+  return result;
+}
+
+// src/hooks/post-tool-use.ts
+var SIGNIFICANT = new Set(["Write", "Edit", "Bash", "Task", "NotebookEdit"]);
+var TRIVIAL_BASH = [
+  "cd",
+  "ls",
+  "pwd",
+  "echo",
+  "cat",
+  "head",
+  "tail",
+  "which",
+  "type",
+  "git status",
+  "git log",
+  "git diff"
+];
+function canonicalizeToolName(name) {
+  switch (name) {
+    case "run_terminal_command":
+    case "run_terminal_cmd":
+    case "Bash":
+      return "Bash";
+    case "search_replace":
+    case "Edit":
+    case "MultiEdit":
+      return "Edit";
+    case "write":
+    case "Write":
+      return "Write";
+    case "spawn_subagent":
+    case "task":
+    case "Task":
+      return "Task";
+    default:
+      return name;
+  }
+}
+function asRecord2(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? v : {};
+}
+function str(v) {
+  return typeof v === "string" ? v : "";
+}
+function shouldLogTool(toolName, toolInput) {
+  const name = canonicalizeToolName(toolName);
+  if (!SIGNIFICANT.has(name))
+    return false;
+  if (name === "Bash") {
+    const command = str(toolInput.command);
+    if (TRIVIAL_BASH.some((cmd) => command.trim().startsWith(cmd)))
+      return false;
+  }
+  return true;
+}
+function inferContentPurpose(content, filePath) {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+  if (["ts", "tsx", "js", "jsx"].includes(ext)) {
+    const exportMatch = content.match(/export\s+(default\s+)?(function|class|const|interface|type)\s+(\w+)/);
+    if (exportMatch)
+      return `defines ${exportMatch[2]} ${exportMatch[3]}`;
+  }
+  if (ext === "py") {
+    const classMatch = content.match(/class\s+(\w+)/);
+    if (classMatch)
+      return `defines class ${classMatch[1]}`;
+    const defMatch = content.match(/def\s+(\w+)/);
+    if (defMatch)
+      return `defines function ${defMatch[1]}`;
+  }
+  if (["md", "mdx", "txt"].includes(ext)) {
+    const headingMatch = content.match(/^#\s+(.+)$/m);
+    if (headingMatch)
+      return `doc: ${headingMatch[1].slice(0, 50)}`;
+  }
+  if (["json", "yaml", "yml", "toml"].includes(ext))
+    return "config file";
+  return `${content.split(`
+`).length} lines`;
+}
+function summarizeEdit(oldStr, newStr, filePath) {
+  const oldLines = oldStr.split(`
+`).length;
+  const newLines = newStr.split(`
+`).length;
+  if (oldStr.trim() === "")
+    return `added ${newLines} lines (${inferContentPurpose(newStr, filePath)})`;
+  if (newStr.trim() === "")
+    return `removed ${oldLines} lines`;
+  const lineDiff = newLines - oldLines;
+  if (lineDiff > 0)
+    return `expanded by ${lineDiff} lines`;
+  if (lineDiff < 0)
+    return `reduced by ${-lineDiff} lines`;
+  return `modified ${oldLines} lines`;
+}
+function formatToolSummary(toolName, toolInput, toolResponse = {}) {
+  const name = canonicalizeToolName(toolName);
+  switch (name) {
+    case "Write": {
+      const filePath = str(toolInput.file_path) || "unknown";
+      const fileName = filePath.split("/").pop() || filePath;
+      return `Wrote ${fileName} (${inferContentPurpose(str(toolInput.content), filePath)})`;
+    }
+    case "Edit": {
+      const filePath = str(toolInput.file_path) || "unknown";
+      const fileName = filePath.split("/").pop() || filePath;
+      return `Edited ${fileName}: ${summarizeEdit(str(toolInput.old_string), str(toolInput.new_string), filePath)}`;
+    }
+    case "Bash": {
+      const command = str(toolInput.command).slice(0, 100);
+      const success = !toolResponse.error;
+      const cmdParts = command.split(/[;&|]/)[0]?.trim() ?? "";
+      return `Ran: ${cmdParts.slice(0, 60)} (${success ? "success" : "failed"})`;
+    }
+    case "Task": {
+      const desc = str(toolInput.description) || "unknown";
+      const type = str(toolInput.subagent_type) || str(toolInput.subagentType);
+      return type ? `Agent task (${type}): ${desc}` : `Agent task: ${desc}`;
+    }
+    default:
+      return `Used ${name || toolName}`;
+  }
+}
+async function handlePostToolUse() {
   try {
     const config = loadConfig();
-    if (!config || !isPluginEnabled() || config.saveMessages === false) {
+    if (!config || !isPluginEnabled())
       process.exit(0);
-    }
     let raw = {};
     try {
       const input = getCachedStdin() ?? await Bun.stdin.text();
@@ -16097,46 +16153,39 @@ async function handleUserPrompt() {
       process.exit(0);
     }
     const hook = normalizeHookInput(raw);
-    const prompt = hook.prompt || "";
-    if (!shouldSaveUserPrompt(prompt)) {
-      if (isHarnessInjected(prompt)) {
-        logHook("user-prompt", "Skipping upload (harness-injected content)");
-      }
-      process.exit(0);
-    }
+    const toolName = hook.toolName || "";
+    const toolInput = asRecord2(hook.toolInput);
+    const toolResponse = asRecord2(hook.toolResponse);
     const cwd = resolveCwd(hook);
-    const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
     const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
-    const sessionName = getSessionName(cwd, instanceId, config, branch);
+    const sessionName = getSessionName(cwd, hook.sessionId, config, branch);
     setLogContext(cwd, sessionName);
-    logHook("user-prompt", `Prompt received (${prompt.length} chars)`);
+    if (!shouldLogTool(toolName, toolInput))
+      process.exit(0);
+    const summary = redactSecrets(formatToolSummary(toolName, toolInput, toolResponse), config.redactPatterns);
+    logHook("post-tool-use", summary, { tool: canonicalizeToolName(toolName) });
+    if (config.saveMessages === false || config.saveToolUse !== true)
+      process.exit(0);
     const honcho = new import_sdk.Honcho(getHonchoClientOptions(config));
-    const noEnsure = () => Promise.resolve();
-    const userPeer = new import_sdk.Peer(config.peerName, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    const createdAt = new Date().toISOString();
-    const configuration = isTerseReply(prompt) ? { reasoning: { enabled: false } } : undefined;
-    const messages = chunkContent(prompt).map((chunk) => userPeer.message(chunk, {
-      createdAt,
-      metadata: {
-        instance_id: instanceId || undefined,
-        session_affinity: sessionName,
-        host: "grok"
-      },
-      ...configuration ? { configuration } : {}
-    }));
-    logApiCall("session.addMessages", "POST", `user prompt (${prompt.length} chars, ${messages.length} msg)`);
-    const session = new import_sdk.Session(sessionName, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    await addMessagesBatched(session, messages, (e) => {
-      logHook("user-prompt", `Direct upload failed, retrying via get-or-create: ${e}`);
-      return honcho.session(sessionName);
-    });
-    logHook("user-prompt", "Saved user prompt");
+    const session = await honcho.session(sessionName);
+    const aiPeer = await honcho.peer(config.aiPeer);
+    logApiCall("session.addMessages", "POST", `tool: ${summary.slice(0, 50)}`);
+    await session.addMessages([
+      aiPeer.message(`[Tool] ${summary}`, {
+        metadata: {
+          instance_id: hook.sessionId || undefined,
+          session_affinity: sessionName,
+          host: "grok",
+          type: "tool_use"
+        }
+      })
+    ]);
   } catch (error) {
-    logHook("user-prompt", `Upload failed: ${error}`, { error: String(error) });
+    logHook("post-tool-use", `Upload failed: ${error}`, { error: String(error) });
   }
   process.exit(0);
 }
 
-// hooks/user-prompt.ts
+// hooks/post-tool-use.ts
 await initHook();
-await handleUserPrompt();
+await handlePostToolUse();

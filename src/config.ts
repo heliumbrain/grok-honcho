@@ -28,6 +28,8 @@ export interface HostConfig {
   enabled?: boolean;
   logging?: boolean;
   saveMessages?: boolean;
+  /** Opt-in PostToolUse upload. Default off. */
+  saveToolUse?: boolean;
   sessionStrategy?: SessionStrategy;
   sessionPeerPrefix?: boolean;
   reasoningLevel?: ReasoningLevel;
@@ -42,6 +44,8 @@ interface HonchoFileConfig {
   aiPeer?: string;
   sessions?: Record<string, string>;
   saveMessages?: boolean;
+  saveToolUse?: boolean;
+  redactPatterns?: string[];
   enabled?: boolean;
   logging?: boolean;
   sessionStrategy?: SessionStrategy;
@@ -64,6 +68,8 @@ export interface HonchoRuntimeConfig {
   sessionPeerPrefix?: boolean;
   sessions?: Record<string, string>;
   saveMessages?: boolean;
+  saveToolUse?: boolean;
+  redactPatterns?: string[];
   reasoningLevel?: ReasoningLevel;
   observationMode?: ObservationMode;
   endpoint?: HonchoEndpointConfig;
@@ -248,6 +254,8 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoRuntimeCo
     sessionPeerPrefix: hb?.sessionPeerPrefix ?? raw.sessionPeerPrefix,
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
+    saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
     endpoint,
@@ -327,6 +335,7 @@ export function saveConfig(config: HonchoRuntimeConfig): void {
   }
 
   if (config.sessions !== undefined) existing.sessions = config.sessions;
+  if (config.redactPatterns !== undefined) existing.redactPatterns = config.redactPatterns;
 
   const host = getDetectedHost();
   if (!existing.hosts) existing.hosts = {};
@@ -350,6 +359,7 @@ export function saveConfig(config: HonchoRuntimeConfig): void {
   setHostIfExplicit("enabled", config.enabled, existing.enabled);
   setHostIfExplicit("logging", config.logging, existing.logging);
   setHostIfExplicit("saveMessages", config.saveMessages, existing.saveMessages);
+  setHostIfExplicit("saveToolUse", config.saveToolUse, existing.saveToolUse);
   setHostIfExplicit("sessionStrategy", config.sessionStrategy, existing.sessionStrategy);
   setHostIfExplicit("sessionPeerPrefix", config.sessionPeerPrefix, existing.sessionPeerPrefix);
   setHostIfExplicit("reasoningLevel", config.reasoningLevel, existing.reasoningLevel);

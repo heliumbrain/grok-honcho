@@ -94,7 +94,9 @@ Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice
 |-------|----------|
 | **SessionStart** | Ensure session; inject memory directives + optional summary; nudge `get_briefing` |
 | **UserPromptSubmit** | Save real user prompts (skip harness-injected) |
+| **PostToolUse** | Log a redacted summary of Write/Edit/Bash/Task (Grok names mapped). Upload only when `saveToolUse=true` (default **off**) and `saveMessages` is not false |
 | **Stop** | Save assistant text from **`lastAssistantMessage` first**; transcript fallback only if needed; skip when `stopHookActive` |
+| **PreCompact** | Fetch a compact memory card and write it to `activity.log`. Grok ignores PreCompact stdout, so nothing is injected — call `get_briefing` after compaction |
 | **SessionEnd** | Local log only, fail open |
 
 Errors never block the agent. Logs: `~/.honcho/activity.log` with `grok-honcho:` sources.

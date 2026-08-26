@@ -15848,6 +15848,9 @@ function isLoggingEnabled() {
 function isPluginEnabled() {
   return loadConfig()?.enabled !== false;
 }
+function getObservationMode(config) {
+  return config.observationMode ?? "unified";
+}
 function getHonchoBaseUrlForEndpoint(endpoint) {
   if (endpoint?.baseUrl) {
     const url = endpoint.baseUrl;
@@ -15870,7 +15873,7 @@ function getHonchoClientOptions(config) {
   };
 }
 
-// src/hooks/user-prompt.ts
+// src/hooks/pre-compact.ts
 var import_sdk = __toESM(require_dist(), 1);
 
 // src/payload.ts
@@ -15921,116 +15924,13 @@ function normalizeHookInput(input) {
 function resolveCwd(input, fallback = process.cwd()) {
   return input.workspaceRoot || input.cwd || fallback;
 }
-var TRIVIAL_REPLY_PATTERN = /^(yes|no|ok|sure|thanks|y|n|yep|nope|yeah|nah|continue|go ahead|do it|proceed)$/i;
-var HARNESS_INJECTED_PATTERNS = [
-  /^<task-notification>/,
-  /^<local-command-stdout>/,
-  /^<command-name>/,
-  /^<command-message>/,
-  /^<system-reminder>/,
-  /^<bash-(stdout|stderr|input)>/,
-  /^<<[\w-]+>>$/
-];
-function isTerseReply(prompt) {
-  return TRIVIAL_REPLY_PATTERN.test(prompt.trim());
-}
-function isHarnessInjected(prompt) {
-  return HARNESS_INJECTED_PATTERNS.some((p) => p.test(prompt.trim()));
-}
-function shouldSaveUserPrompt(prompt) {
-  const t = prompt.trim();
-  if (!t)
-    return false;
-  if (isHarnessInjected(t))
-    return false;
-  return true;
-}
-
-// src/cache.ts
-import { homedir as homedir2 } from "os";
-import { join as join2 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
-var CACHE_DIR = join2(homedir2(), ".honcho");
-var ID_CACHE_FILE = join2(CACHE_DIR, "cache.json");
-var MAX_MESSAGE_SIZE = 25000;
-var HONCHO_MAX_BATCH = 50;
-function ensureCacheDir() {
-  if (!existsSync2(CACHE_DIR))
-    mkdirSync2(CACHE_DIR, { recursive: true });
-}
-function loadIdCache() {
-  ensureCacheDir();
-  if (!existsSync2(ID_CACHE_FILE))
-    return {};
-  try {
-    return JSON.parse(readFileSync2(ID_CACHE_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-function getInstanceIdForCwd(cwd) {
-  const cache = loadIdCache();
-  if (!cache.sessions)
-    return null;
-  const key = normalizeCwd(cwd);
-  const direct = cache.sessions[key] ?? cache.sessions[cwd];
-  if (direct)
-    return direct.instanceId ?? null;
-  for (const [stored, entry] of Object.entries(cache.sessions)) {
-    if (normalizeCwd(stored) === key)
-      return entry.instanceId ?? null;
-  }
-  return null;
-}
-function chunkContent(content, maxSize = MAX_MESSAGE_SIZE) {
-  if (content.length <= maxSize)
-    return [content];
-  const chunks = [];
-  let remaining = content;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxSize) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitIndex = remaining.lastIndexOf(`
-`, maxSize);
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = remaining.lastIndexOf(" ", maxSize);
-    }
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = maxSize;
-    }
-    chunks.push(remaining.slice(0, splitIndex));
-    remaining = remaining.slice(splitIndex).trimStart();
-  }
-  if (chunks.length > 1) {
-    return chunks.map((chunk, i) => `[Part ${i + 1}/${chunks.length}] ${chunk}`);
-  }
-  return chunks;
-}
-async function addMessagesBatched(session, messages, resolveFallback) {
-  let active = session;
-  let usedFallback = false;
-  for (let i = 0;i < messages.length; i += HONCHO_MAX_BATCH) {
-    const batch = messages.slice(i, i + HONCHO_MAX_BATCH);
-    try {
-      await active.addMessages(batch);
-    } catch (e) {
-      if (usedFallback || !resolveFallback)
-        throw e;
-      active = await resolveFallback(e);
-      usedFallback = true;
-      await active.addMessages(batch);
-    }
-  }
-}
 
 // src/log.ts
-import { homedir as homedir3 } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync3, appendFileSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
-var CACHE_DIR2 = join3(homedir3(), ".honcho");
-var LOG_FILE = join3(CACHE_DIR2, "activity.log");
+import { homedir as homedir2 } from "os";
+import { join as join2 } from "path";
+import { existsSync as existsSync2, appendFileSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+var CACHE_DIR = join2(homedir2(), ".honcho");
+var LOG_FILE = join2(CACHE_DIR, "activity.log");
 var MAX_LOG_SIZE = 100 * 1024;
 var currentCwd = null;
 var currentSession = null;
@@ -16039,8 +15939,8 @@ function setLogContext(cwd, session) {
   currentSession = session || null;
 }
 function ensureLogDir() {
-  if (!existsSync3(CACHE_DIR2))
-    mkdirSync3(CACHE_DIR2, { recursive: true });
+  if (!existsSync2(CACHE_DIR))
+    mkdirSync2(CACHE_DIR, { recursive: true });
 }
 function logActivity(level, source, message, data, options) {
   if (!isLoggingEnabled())
@@ -16060,12 +15960,12 @@ function logActivity(level, source, message, data, options) {
     plugin: "grok-honcho"
   };
   try {
-    if (existsSync3(LOG_FILE)) {
+    if (existsSync2(LOG_FILE)) {
       try {
         const stats = Bun.file(LOG_FILE).size;
         if (stats > MAX_LOG_SIZE) {
-          const content = readFileSync3(LOG_FILE, "utf-8");
-          writeFileSync3(LOG_FILE, content.slice(-50 * 1024));
+          const content = readFileSync2(LOG_FILE, "utf-8");
+          writeFileSync2(LOG_FILE, content.slice(-50 * 1024));
         }
       } catch {}
     }
@@ -16081,62 +15981,90 @@ function logApiCall(endpoint, method, details, timing, success) {
   logActivity("api", "honcho", msg, undefined, { timing, success });
 }
 
-// src/hooks/user-prompt.ts
-async function handleUserPrompt() {
+// src/hooks/pre-compact.ts
+var FETCH_TIMEOUT_MS = 1e4;
+function raceTimeout(p, ms) {
+  return Promise.race([
+    p.catch(() => null),
+    new Promise((resolve2) => setTimeout(() => resolve2(null), ms))
+  ]);
+}
+function formatMemoryCard(config, sessionName, userContext, summaries) {
+  const parts = [
+    `## HONCHO MEMORY ANCHOR
+This context is being compacted. Preserve these conclusions.
+
+### Session Identity
+- User: ${config.peerName}
+- AI: ${config.aiPeer}
+- Workspace: ${config.workspace}
+- Session: ${sessionName}`
+  ];
+  const peerCard = userContext?.peerCard;
+  if (peerCard && peerCard.length > 0) {
+    parts.push(`### ${config.peerName}'s Profile (PRESERVE)
+${peerCard.join(`
+`)}`);
+  }
+  const userRep = userContext?.representation;
+  if (typeof userRep === "string" && userRep.trim()) {
+    parts.push(`### Key Conclusions About ${config.peerName} (PRESERVE)
+${userRep}`);
+  }
+  const shortSummary = summaries?.shortSummary?.content;
+  if (shortSummary) {
+    parts.push(`### Session Context (PRESERVE)
+${shortSummary}`);
+  }
+  parts.push(`### End Memory Anchor
+Call get_briefing after compaction if this context is missing.`);
+  return parts.join(`
+
+`);
+}
+async function handlePreCompact() {
   try {
     const config = loadConfig();
-    if (!config || !isPluginEnabled() || config.saveMessages === false) {
+    if (!config || !isPluginEnabled())
       process.exit(0);
-    }
     let raw = {};
     try {
       const input = getCachedStdin() ?? await Bun.stdin.text();
       if (input.trim())
         raw = JSON.parse(input);
-    } catch {
-      process.exit(0);
-    }
+    } catch {}
     const hook = normalizeHookInput(raw);
-    const prompt = hook.prompt || "";
-    if (!shouldSaveUserPrompt(prompt)) {
-      if (isHarnessInjected(prompt)) {
-        logHook("user-prompt", "Skipping upload (harness-injected content)");
-      }
-      process.exit(0);
-    }
     const cwd = resolveCwd(hook);
-    const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
+    const trigger = hook.trigger || "auto";
     const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
-    const sessionName = getSessionName(cwd, instanceId, config, branch);
+    const sessionName = getSessionName(cwd, hook.sessionId, config, branch);
     setLogContext(cwd, sessionName);
-    logHook("user-prompt", `Prompt received (${prompt.length} chars)`);
+    logHook("pre-compact", `Compaction triggered (${trigger})`);
     const honcho = new import_sdk.Honcho(getHonchoClientOptions(config));
-    const noEnsure = () => Promise.resolve();
-    const userPeer = new import_sdk.Peer(config.peerName, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    const createdAt = new Date().toISOString();
-    const configuration = isTerseReply(prompt) ? { reasoning: { enabled: false } } : undefined;
-    const messages = chunkContent(prompt).map((chunk) => userPeer.message(chunk, {
-      createdAt,
-      metadata: {
-        instance_id: instanceId || undefined,
-        session_affinity: sessionName,
-        host: "grok"
-      },
-      ...configuration ? { configuration } : {}
-    }));
-    logApiCall("session.addMessages", "POST", `user prompt (${prompt.length} chars, ${messages.length} msg)`);
-    const session = new import_sdk.Session(sessionName, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    await addMessagesBatched(session, messages, (e) => {
-      logHook("user-prompt", `Direct upload failed, retrying via get-or-create: ${e}`);
-      return honcho.session(sessionName);
+    const observationMode = getObservationMode(config);
+    const session = await honcho.session(sessionName);
+    const contextPeer = observationMode === "unified" ? await honcho.peer(config.peerName) : await honcho.peer(config.aiPeer);
+    const contextTarget = observationMode === "unified" ? undefined : config.peerName;
+    logApiCall("peer.context", "GET", observationMode);
+    logApiCall("session.summaries", "GET", sessionName);
+    const [userContext, summaries] = await Promise.all([
+      raceTimeout(contextPeer.context({
+        ...contextTarget ? { target: contextTarget } : {},
+        maxConclusions: 30,
+        includeMostFrequent: true
+      }), FETCH_TIMEOUT_MS),
+      raceTimeout(session.summaries(), FETCH_TIMEOUT_MS)
+    ]);
+    const memoryCard = formatMemoryCard(config, sessionName, userContext, summaries);
+    logHook("pre-compact", `Memory card built (${memoryCard.length} chars); Grok ignores PreCompact stdout so it was not injected`, {
+      trigger
     });
-    logHook("user-prompt", "Saved user prompt");
   } catch (error) {
-    logHook("user-prompt", `Upload failed: ${error}`, { error: String(error) });
+    logHook("pre-compact", `Error: ${error}`, { error: String(error) });
   }
   process.exit(0);
 }
 
-// hooks/user-prompt.ts
+// hooks/pre-compact.ts
 await initHook();
-await handleUserPrompt();
+await handlePreCompact();
