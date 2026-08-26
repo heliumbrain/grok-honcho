@@ -6,6 +6,7 @@
 import { homedir } from "os";
 import { join } from "path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { normalizeCwd } from "./config.js";
 
 const CACHE_DIR = join(homedir(), ".honcho");
 const ID_CACHE_FILE = join(CACHE_DIR, "cache.json");
@@ -44,18 +45,27 @@ export function setCachedSessionId(
 ): void {
   const cache = loadIdCache();
   if (!cache.sessions) cache.sessions = {};
-  cache.sessions[cwd] = {
+  const key = normalizeCwd(cwd);
+  cache.sessions[key] = {
     name,
     id,
     updatedAt: new Date().toISOString(),
     instanceId,
   };
+  if (cwd !== key) delete cache.sessions[cwd];
   saveIdCache(cache);
 }
 
 export function getInstanceIdForCwd(cwd: string): string | null {
   const cache = loadIdCache();
-  return cache.sessions?.[cwd]?.instanceId ?? null;
+  if (!cache.sessions) return null;
+  const key = normalizeCwd(cwd);
+  const direct = cache.sessions[key] ?? cache.sessions[cwd];
+  if (direct) return direct.instanceId ?? null;
+  for (const [stored, entry] of Object.entries(cache.sessions)) {
+    if (normalizeCwd(stored) === key) return entry.instanceId ?? null;
+  }
+  return null;
 }
 
 /** Most recently active CWD — MCP fallback when process.cwd() is wrong. */
@@ -68,7 +78,7 @@ export function getLastActiveCwd(): string | null {
       latest = { cwd, updatedAt: entry.updatedAt };
     }
   }
-  return latest?.cwd || null;
+  return latest ? normalizeCwd(latest.cwd) : null;
 }
 
 export function chunkContent(content: string, maxSize: number = MAX_MESSAGE_SIZE): string[] {

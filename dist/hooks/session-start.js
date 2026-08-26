@@ -370,7 +370,7 @@ var require_client = __commonJS((exports) => {
       return INITIAL_RETRY_DELAY * 2 ** attempt;
     }
     sleep(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms));
+      return new Promise((resolve2) => setTimeout(resolve2, ms));
     }
   }
   exports.HonchoHTTPClient = HonchoHTTPClient;
@@ -15585,8 +15585,8 @@ var require_dist = __commonJS((exports) => {
 
 // src/config.ts
 import { homedir } from "os";
-import { basename, join } from "path";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { basename, join, resolve } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 var CONFIG_DIR = join(homedir(), ".honcho");
 var CONFIG_FILE = join(CONFIG_DIR, "config.json");
 var HONCHO_BASE_URLS = {
@@ -15819,6 +15819,26 @@ function saveConfig(config) {
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
+function normalizeCwd(cwd) {
+  const resolved = resolve(cwd);
+  try {
+    return existsSync(resolved) ? realpathSync(resolved) : resolved;
+  } catch {
+    return resolved;
+  }
+}
+function sessionOverrideFor(cwd, sessions) {
+  const key = normalizeCwd(cwd);
+  if (sessions[key])
+    return sessions[key];
+  if (sessions[cwd])
+    return sessions[cwd];
+  for (const [stored, name] of Object.entries(sessions)) {
+    if (normalizeCwd(stored) === key)
+      return name;
+  }
+  return null;
+}
 function getGitBranch(cwd) {
   try {
     const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
@@ -15859,17 +15879,18 @@ function getSessionForPath(cwd, config) {
   const cfg = config === undefined ? loadConfig() : config;
   if (!cfg?.sessions)
     return null;
-  return cfg.sessions[cwd] || null;
+  return sessionOverrideFor(cwd, cfg.sessions);
 }
 function getSessionName(cwd, instanceId, config, branch) {
   const cfg = config === undefined ? loadConfig() : config;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
+  const path = normalizeCwd(cwd);
   if (strategy === "per-directory") {
-    const override = getSessionForPath(cwd, cfg);
+    const override = getSessionForPath(path, cfg);
     if (override)
       return override;
   }
-  return deriveSessionName(strategy, cwd, {
+  return deriveSessionName(strategy, path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
@@ -15882,7 +15903,10 @@ function setSessionForPath(cwd, sessionName) {
     return;
   if (!config.sessions)
     config.sessions = {};
-  config.sessions[cwd] = sessionName;
+  const key = normalizeCwd(cwd);
+  config.sessions[key] = sessionName;
+  if (cwd !== key)
+    delete config.sessions[cwd];
   saveConfig(config);
 }
 function isLoggingEnabled() {
@@ -15987,12 +16011,15 @@ function setCachedSessionId(cwd, name, id, instanceId) {
   const cache = loadIdCache();
   if (!cache.sessions)
     cache.sessions = {};
-  cache.sessions[cwd] = {
+  const key = normalizeCwd(cwd);
+  cache.sessions[key] = {
     name,
     id,
     updatedAt: new Date().toISOString(),
     instanceId
   };
+  if (cwd !== key)
+    delete cache.sessions[cwd];
   saveIdCache(cache);
 }
 
@@ -16060,7 +16087,7 @@ var CONTEXT_FETCH_TIMEOUT_MS = 1e4;
 function raceTimeout(p, ms) {
   return Promise.race([
     p.catch(() => null),
-    new Promise((resolve) => setTimeout(() => resolve(null), ms))
+    new Promise((resolve2) => setTimeout(() => resolve2(null), ms))
   ]);
 }
 async function handleSessionStart() {
