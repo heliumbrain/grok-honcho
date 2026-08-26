@@ -29,7 +29,7 @@ async function runHook(
   entry: string,
   stdin: Record<string, unknown>,
   config: unknown = unreachableConfig(),
-): Promise<{ exitCode: number; log: string; home: string; cwd: string }> {
+): Promise<{ exitCode: number; log: string; home: string; cwd: string; stdout: string }> {
   const home = mkdtempSync(join(tmpdir(), "grok-honcho-hook-"));
   homes.push(home);
   const cwd = join(home, "proj");
@@ -55,7 +55,8 @@ async function runHook(
 
   const logPath = join(home, ".honcho", "activity.log");
   const log = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
-  return { exitCode, log, home, cwd };
+  const stdout = await new Response(proc.stdout).text();
+  return { exitCode, log, home, cwd, stdout };
 }
 
 describe("hook stdin", () => {
@@ -103,13 +104,14 @@ describe("hook stdin", () => {
     expect(log).toContain("Session ended");
   });
 
-  test("pre-compact fail-opens on unreachable Honcho", async () => {
-    const { exitCode, log } = await runHook("pre-compact.ts", {
+  test("pre-compact fail-opens on unreachable Honcho and writes no stdout", async () => {
+    const { exitCode, log, stdout } = await runHook("pre-compact.ts", {
       hookEventName: "PreCompact",
       trigger: "auto",
     });
     expect(exitCode).toBe(0);
     expect(log).toContain("grok-honcho:pre-compact");
+    expect(stdout.trim()).toBe("");
   });
 
   test("post-tool-use skips trivial bash and redacts significant commands", async () => {

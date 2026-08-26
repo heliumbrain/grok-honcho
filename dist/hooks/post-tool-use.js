@@ -16059,6 +16059,14 @@ function asRecord2(v) {
 function str(v) {
   return typeof v === "string" ? v : "";
 }
+function field(input, ...keys) {
+  for (const key of keys) {
+    const value = str(input[key]);
+    if (value)
+      return value;
+  }
+  return "";
+}
 function shouldLogTool(toolName, toolInput) {
   const name = canonicalizeToolName(toolName);
   if (!SIGNIFICANT.has(name))
@@ -16115,24 +16123,24 @@ function formatToolSummary(toolName, toolInput, toolResponse = {}) {
   const name = canonicalizeToolName(toolName);
   switch (name) {
     case "Write": {
-      const filePath = str(toolInput.file_path) || "unknown";
+      const filePath = field(toolInput, "file_path", "filePath") || "unknown";
       const fileName = filePath.split("/").pop() || filePath;
-      return `Wrote ${fileName} (${inferContentPurpose(str(toolInput.content), filePath)})`;
+      return `Wrote ${fileName} (${inferContentPurpose(field(toolInput, "content", "contents"), filePath)})`;
     }
     case "Edit": {
-      const filePath = str(toolInput.file_path) || "unknown";
+      const filePath = field(toolInput, "file_path", "filePath") || "unknown";
       const fileName = filePath.split("/").pop() || filePath;
-      return `Edited ${fileName}: ${summarizeEdit(str(toolInput.old_string), str(toolInput.new_string), filePath)}`;
+      return `Edited ${fileName}: ${summarizeEdit(field(toolInput, "old_string", "oldString"), field(toolInput, "new_string", "newString"), filePath)}`;
     }
     case "Bash": {
-      const command = str(toolInput.command).slice(0, 100);
+      const command = field(toolInput, "command").slice(0, 100);
       const success = !toolResponse.error;
       const cmdParts = command.split(/[;&|]/)[0]?.trim() ?? "";
       return `Ran: ${cmdParts.slice(0, 60)} (${success ? "success" : "failed"})`;
     }
     case "Task": {
-      const desc = str(toolInput.description) || "unknown";
-      const type = str(toolInput.subagent_type) || str(toolInput.subagentType);
+      const desc = field(toolInput, "description") || "unknown";
+      const type = field(toolInput, "subagent_type", "subagentType");
       return type ? `Agent task (${type}): ${desc}` : `Agent task: ${desc}`;
     }
     default:

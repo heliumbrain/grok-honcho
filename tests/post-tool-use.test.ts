@@ -34,6 +34,15 @@ describe("PostToolUse summaries", () => {
     expect(summary).not.toContain("export function redactSecrets");
   });
 
+  test("accepts camelCase Grok write keys", () => {
+    const summary = formatToolSummary("write", {
+      filePath: "/repo/src/config.ts",
+      content: "export function loadConfig() {}\n",
+    });
+    expect(summary).toContain("Wrote config.ts");
+    expect(summary).toContain("defines function loadConfig");
+  });
+
   test("camelCase envelope feeds the summarizer", () => {
     const hook = normalizeHookInput({
       hookEventName: "PostToolUse",
