@@ -30355,7 +30355,7 @@ async function runMcpServer() {
     tools: [
       {
         name: "search",
-        description: "Search across messages using semantic search. Defaults to the current session; use scope='workspace' for all sessions.",
+        description: "Semantic search across messages and saved conclusions. Messages default to the current session; use scope='workspace' for all sessions. Conclusions are always searched workspace-wide.",
         inputSchema: {
           type: "object",
           properties: {
@@ -30400,13 +30400,36 @@ async function runMcpServer() {
       },
       {
         name: "list_conclusions",
-        description: "List conclusions Honcho has saved about the user",
+        description: "List conclusions Honcho has saved about the user. Use this to review what is remembered before creating duplicates, or to find IDs for deletion.",
         inputSchema: {
           type: "object",
           properties: {
             page: { type: "number", default: 1 },
             size: { type: "number", default: 20 }
           }
+        }
+      },
+      {
+        name: "query_conclusions",
+        description: "Semantically search conclusions Honcho has saved about the user. Returns IDs usable with delete_conclusion.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search query" },
+            top_k: { type: "number", description: "Max results (default 10)", default: 10 }
+          },
+          required: ["query"]
+        }
+      },
+      {
+        name: "delete_conclusion",
+        description: "Delete a conclusion from Honcho's memory by ID. Use query_conclusions or list_conclusions to find the ID first.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "The conclusion ID to delete" }
+          },
+          required: ["id"]
         }
       },
       {
@@ -30504,26 +30527,63 @@ async function runMcpServer() {
       timeout: DIALECTIC_TIMEOUT_MS,
       maxRetries: 0
     });
-    if (name === "list_conclusions") {
+    if (name === "list_conclusions" || name === "delete_conclusion" || name === "query_conclusions") {
       try {
+        if (name === "query_conclusions") {
+          const query = args?.query;
+          if (typeof query !== "string" || !query.trim()) {
+            return {
+              content: [{ type: "text", text: "Error: query required" }],
+              isError: true
+            };
+          }
+        }
+        if (name === "delete_conclusion") {
+          const id = args?.id;
+          if (typeof id !== "string" || !id.trim()) {
+            return {
+              content: [{ type: "text", text: "Error: id required" }],
+              isError: true
+            };
+          }
+        }
         const observationMode = getObservationMode(activeConfig);
         const scopePeer = observationMode === "unified" ? await honcho.peer(activeConfig.peerName) : await honcho.peer(activeConfig.aiPeer);
         const conclusionScope = scopePeer.conclusionsOf(activeConfig.peerName);
-        const page = args?.page ?? 1;
-        const size = Math.min(args?.size ?? 20, 100);
-        const result = await conclusionScope.list({ page, size });
-        const items = result.items.map((c) => ({
-          id: c.id,
-          content: c.content,
-          createdAt: c.createdAt
-        }));
+        if (name === "list_conclusions") {
+          const page = args?.page ?? 1;
+          const size = Math.min(args?.size ?? 20, 100);
+          const result = await conclusionScope.list({ page, size });
+          const items = result.items.map((c) => ({
+            id: c.id,
+            content: c.content,
+            createdAt: c.createdAt
+          }));
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({ items, total: result.total, page: result.page, pages: result.pages }, null, 2)
+              }
+            ]
+          };
+        }
+        if (name === "query_conclusions") {
+          const query = args?.query;
+          const topK = Math.min(args?.top_k ?? 10, 50);
+          const conclusions = await conclusionScope.query(query, topK);
+          const items = conclusions.map((c) => ({
+            id: c.id,
+            content: c.content,
+            createdAt: c.createdAt
+          }));
+          return {
+            content: [{ type: "text", text: JSON.stringify(items, null, 2) }]
+          };
+        }
+        await conclusionScope.delete(args?.id);
         return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ items, total: result.total, page: result.page, pages: result.pages }, null, 2)
-            }
-          ]
+          content: [{ type: "text", text: `Deleted conclusion ${args?.id}` }]
         };
       } catch (error2) {
         return {
@@ -30547,12 +30607,22 @@ async function runMcpServer() {
           const query = args?.query;
           const limit = args?.limit ?? 10;
           const scope = args?.scope ?? "session";
-          const messages = scope === "workspace" ? await honcho.search(query, { limit }) : await session.search(query, { limit });
-          const results = messages.map((msg) => ({
-            content: msg.content,
-            peerId: msg.peer,
-            createdAt: msg.createdAt || msg.created_at
-          }));
+          const [messages, conclusions] = await Promise.all([
+            scope === "workspace" ? honcho.search(query, { limit }) : session.search(query, { limit }),
+            activePeer.conclusionsOf(activeConfig.peerName).query(query, limit).catch(() => [])
+          ]);
+          const results = {
+            messages: messages.map((msg) => ({
+              content: msg.content,
+              peerId: msg.peer,
+              createdAt: msg.createdAt || msg.created_at
+            })),
+            conclusions: conclusions.map((c) => ({
+              id: c.id,
+              content: c.content,
+              createdAt: c.createdAt
+            }))
+          };
           return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
         }
         case "chat": {
