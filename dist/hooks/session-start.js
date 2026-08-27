@@ -15713,6 +15713,8 @@ function resolveConfig(raw, host) {
     sessionPeerPrefix: hb?.sessionPeerPrefix ?? raw.sessionPeerPrefix,
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
+    saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
     endpoint,
@@ -15934,6 +15936,11 @@ function asBool(v) {
   }
   return;
 }
+function asRecord(v) {
+  if (v !== null && typeof v === "object" && !Array.isArray(v))
+    return v;
+  return;
+}
 function normalizeHookInput(input) {
   const workspaceRoots = input.workspace_roots ?? input.workspaceRoots;
   let workspaceRoot = asString(input.workspaceRoot) ?? asString(input.workspace_root);
@@ -15951,6 +15958,10 @@ function normalizeHookInput(input) {
     source: asString(input.source),
     reason: asString(input.reason),
     hookEventName: asString(input.hookEventName) ?? asString(input.hook_event_name),
+    toolName: asString(input.toolName) ?? asString(input.tool_name),
+    toolInput: asRecord(input.toolInput) ?? asRecord(input.tool_input),
+    toolResponse: asRecord(input.toolResponse) ?? asRecord(input.tool_response),
+    trigger: asString(input.trigger),
     raw: input
   };
 }

@@ -18,6 +18,11 @@ export interface NormalizedHookInput {
   source?: string;
   reason?: string;
   hookEventName?: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  toolResponse?: Record<string, unknown>;
+  /** PreCompact trigger: `auto` | `manual`. */
+  trigger?: string;
   /** Raw parsed object for advanced use. */
   raw: Record<string, unknown>;
 }
@@ -33,6 +38,11 @@ function asBool(v: unknown): boolean | undefined {
     if (t === "true" || t === "1") return true;
     if (t === "false" || t === "0") return false;
   }
+  return undefined;
+}
+
+function asRecord(v: unknown): Record<string, unknown> | undefined {
+  if (v !== null && typeof v === "object" && !Array.isArray(v)) return v as Record<string, unknown>;
   return undefined;
 }
 
@@ -58,6 +68,10 @@ export function normalizeHookInput(input: Record<string, unknown>): NormalizedHo
     source: asString(input.source),
     reason: asString(input.reason),
     hookEventName: asString(input.hookEventName) ?? asString(input.hook_event_name),
+    toolName: asString(input.toolName) ?? asString(input.tool_name),
+    toolInput: asRecord(input.toolInput) ?? asRecord(input.tool_input),
+    toolResponse: asRecord(input.toolResponse) ?? asRecord(input.tool_response),
+    trigger: asString(input.trigger),
     raw: input,
   };
 }

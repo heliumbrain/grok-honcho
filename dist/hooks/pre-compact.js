@@ -15892,6 +15892,9 @@ function isLoggingEnabled() {
 function isPluginEnabled() {
   return loadConfig()?.enabled !== false;
 }
+function getObservationMode(config) {
+  return config.observationMode ?? "unified";
+}
 function getHonchoBaseUrlForEndpoint(endpoint) {
   if (endpoint?.baseUrl) {
     const url = endpoint.baseUrl;
@@ -15914,9 +15917,8 @@ function getHonchoClientOptions(config) {
   };
 }
 
-// src/hooks/stop.ts
+// src/hooks/pre-compact.ts
 var import_sdk = __toESM(require_dist(), 1);
-import { existsSync as existsSync4, readFileSync as readFileSync4 } from "fs";
 
 // src/payload.ts
 function asString(v) {
@@ -15966,163 +15968,13 @@ function normalizeHookInput(input) {
 function resolveCwd(input, fallback = process.cwd()) {
   return input.workspaceRoot || input.cwd || fallback;
 }
-function extractAssistantText(input, readTranscript) {
-  const fromField = input.lastAssistantMessage?.trim() ?? "";
-  if (fromField.length > 0) {
-    return { text: fromField, source: "lastAssistantMessage" };
-  }
-  if (input.transcriptPath && readTranscript) {
-    try {
-      const raw = readTranscript(input.transcriptPath);
-      if (raw) {
-        const fromTranscript = parseLastTurnAssistantFromTranscript(raw);
-        if (fromTranscript.trim()) {
-          return { text: fromTranscript, source: "transcript" };
-        }
-      }
-    } catch {}
-  }
-  return { text: "", source: "none" };
-}
-function contentToText(content) {
-  if (typeof content === "string")
-    return content;
-  if (Array.isArray(content)) {
-    return content.filter((b) => !!b && typeof b === "object").filter((b) => b.type === "text" && b.text).map((b) => b.text).join(`
-
-`);
-  }
-  return "";
-}
-function isRealUserPrompt(entry) {
-  if (entry.isMeta)
-    return false;
-  const text = contentToText(entry.message?.content ?? entry.content).trim();
-  return text.length > 0 && !text.startsWith("<");
-}
-function parseLastTurnAssistantFromTranscript(transcriptContent) {
-  const lines = transcriptContent.trim().split(`
-`).filter((l) => l.trim());
-  if (lines.length === 0)
-    return "";
-  let lastPromptIdx = -1;
-  for (let i = lines.length - 1;i >= 0; i--) {
-    try {
-      const entry = JSON.parse(lines[i]);
-      if ((entry.type || entry.role || entry.message?.role) === "user" && isRealUserPrompt(entry)) {
-        lastPromptIdx = i;
-        break;
-      }
-    } catch {
-      continue;
-    }
-  }
-  if (lastPromptIdx === -1)
-    return "";
-  const blocks = [];
-  for (let i = lastPromptIdx + 1;i < lines.length; i++) {
-    try {
-      const entry = JSON.parse(lines[i]);
-      const role = entry.type || entry.role || entry.message?.role;
-      if (role !== "assistant")
-        continue;
-      const text = contentToText(entry.message?.content ?? entry.content);
-      if (text.trim())
-        blocks.push(text);
-    } catch {
-      continue;
-    }
-  }
-  return blocks.join(`
-
-`);
-}
-
-// src/cache.ts
-import { homedir as homedir2 } from "os";
-import { join as join2 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
-var CACHE_DIR = join2(homedir2(), ".honcho");
-var ID_CACHE_FILE = join2(CACHE_DIR, "cache.json");
-var MAX_MESSAGE_SIZE = 25000;
-var HONCHO_MAX_BATCH = 50;
-function ensureCacheDir() {
-  if (!existsSync2(CACHE_DIR))
-    mkdirSync2(CACHE_DIR, { recursive: true });
-}
-function loadIdCache() {
-  ensureCacheDir();
-  if (!existsSync2(ID_CACHE_FILE))
-    return {};
-  try {
-    return JSON.parse(readFileSync2(ID_CACHE_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
-}
-function getInstanceIdForCwd(cwd) {
-  const cache = loadIdCache();
-  if (!cache.sessions)
-    return null;
-  const key = normalizeCwd(cwd);
-  const direct = cache.sessions[key] ?? cache.sessions[cwd];
-  if (direct)
-    return direct.instanceId ?? null;
-  for (const [stored, entry] of Object.entries(cache.sessions)) {
-    if (normalizeCwd(stored) === key)
-      return entry.instanceId ?? null;
-  }
-  return null;
-}
-function chunkContent(content, maxSize = MAX_MESSAGE_SIZE) {
-  if (content.length <= maxSize)
-    return [content];
-  const chunks = [];
-  let remaining = content;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxSize) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitIndex = remaining.lastIndexOf(`
-`, maxSize);
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = remaining.lastIndexOf(" ", maxSize);
-    }
-    if (splitIndex <= 0 || splitIndex < maxSize * 0.25) {
-      splitIndex = maxSize;
-    }
-    chunks.push(remaining.slice(0, splitIndex));
-    remaining = remaining.slice(splitIndex).trimStart();
-  }
-  if (chunks.length > 1) {
-    return chunks.map((chunk, i) => `[Part ${i + 1}/${chunks.length}] ${chunk}`);
-  }
-  return chunks;
-}
-async function addMessagesBatched(session, messages, resolveFallback) {
-  let active = session;
-  let usedFallback = false;
-  for (let i = 0;i < messages.length; i += HONCHO_MAX_BATCH) {
-    const batch = messages.slice(i, i + HONCHO_MAX_BATCH);
-    try {
-      await active.addMessages(batch);
-    } catch (e) {
-      if (usedFallback || !resolveFallback)
-        throw e;
-      active = await resolveFallback(e);
-      usedFallback = true;
-      await active.addMessages(batch);
-    }
-  }
-}
 
 // src/log.ts
-import { homedir as homedir3 } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync3, appendFileSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
-var CACHE_DIR2 = join3(homedir3(), ".honcho");
-var LOG_FILE = join3(CACHE_DIR2, "activity.log");
+import { homedir as homedir2 } from "os";
+import { join as join2 } from "path";
+import { existsSync as existsSync2, appendFileSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+var CACHE_DIR = join2(homedir2(), ".honcho");
+var LOG_FILE = join2(CACHE_DIR, "activity.log");
 var MAX_LOG_SIZE = 100 * 1024;
 var currentCwd = null;
 var currentSession = null;
@@ -16131,8 +15983,8 @@ function setLogContext(cwd, session) {
   currentSession = session || null;
 }
 function ensureLogDir() {
-  if (!existsSync3(CACHE_DIR2))
-    mkdirSync3(CACHE_DIR2, { recursive: true });
+  if (!existsSync2(CACHE_DIR))
+    mkdirSync2(CACHE_DIR, { recursive: true });
 }
 function logActivity(level, source, message, data, options) {
   if (!isLoggingEnabled())
@@ -16152,12 +16004,12 @@ function logActivity(level, source, message, data, options) {
     plugin: "grok-honcho"
   };
   try {
-    if (existsSync3(LOG_FILE)) {
+    if (existsSync2(LOG_FILE)) {
       try {
         const stats = Bun.file(LOG_FILE).size;
         if (stats > MAX_LOG_SIZE) {
-          const content = readFileSync3(LOG_FILE, "utf-8");
-          writeFileSync3(LOG_FILE, content.slice(-50 * 1024));
+          const content = readFileSync2(LOG_FILE, "utf-8");
+          writeFileSync2(LOG_FILE, content.slice(-50 * 1024));
         }
       } catch {}
     }
@@ -16173,76 +16025,90 @@ function logApiCall(endpoint, method, details, timing, success) {
   logActivity("api", "honcho", msg, undefined, { timing, success });
 }
 
-// src/hooks/stop.ts
-async function handleStop() {
+// src/hooks/pre-compact.ts
+var FETCH_TIMEOUT_MS = 1e4;
+function raceTimeout(p, ms) {
+  return Promise.race([
+    p.catch(() => null),
+    new Promise((resolve2) => setTimeout(() => resolve2(null), ms))
+  ]);
+}
+function formatMemoryCard(config, sessionName, userContext, summaries) {
+  const parts = [
+    `## HONCHO MEMORY ANCHOR
+This context is being compacted. Preserve these conclusions.
+
+### Session Identity
+- User: ${config.peerName}
+- AI: ${config.aiPeer}
+- Workspace: ${config.workspace}
+- Session: ${sessionName}`
+  ];
+  const peerCard = userContext?.peerCard;
+  if (peerCard && peerCard.length > 0) {
+    parts.push(`### ${config.peerName}'s Profile (PRESERVE)
+${peerCard.join(`
+`)}`);
+  }
+  const userRep = userContext?.representation;
+  if (typeof userRep === "string" && userRep.trim()) {
+    parts.push(`### Key Conclusions About ${config.peerName} (PRESERVE)
+${userRep}`);
+  }
+  const shortSummary = summaries?.shortSummary?.content;
+  if (shortSummary) {
+    parts.push(`### Session Context (PRESERVE)
+${shortSummary}`);
+  }
+  parts.push(`### End Memory Anchor
+Call get_briefing after compaction if this context is missing.`);
+  return parts.join(`
+
+`);
+}
+async function handlePreCompact() {
   try {
     const config = loadConfig();
-    if (!config || !isPluginEnabled() || config.saveMessages === false) {
+    if (!config || !isPluginEnabled())
       process.exit(0);
-    }
     let raw = {};
     try {
       const input = getCachedStdin() ?? await Bun.stdin.text();
       if (input.trim())
         raw = JSON.parse(input);
-    } catch {
-      process.exit(0);
-    }
+    } catch {}
     const hook = normalizeHookInput(raw);
-    if (hook.stopHookActive) {
-      logHook("stop", "Skipping (stopHookActive=true)");
-      process.exit(0);
-    }
-    if (hook.reason && hook.reason !== "end_turn" && !hook.lastAssistantMessage) {
-      logHook("stop", `Skipping (reason=${hook.reason}, no lastAssistantMessage)`);
-      process.exit(0);
-    }
     const cwd = resolveCwd(hook);
-    const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
+    const trigger = hook.trigger || "auto";
     const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
-    const sessionName = getSessionName(cwd, instanceId, config, branch);
+    const sessionName = getSessionName(cwd, hook.sessionId, config, branch);
     setLogContext(cwd, sessionName);
-    const { text, source } = extractAssistantText(hook, (path) => {
-      if (!path || !existsSync4(path))
-        return null;
-      try {
-        return readFileSync4(path, "utf-8");
-      } catch {
-        return null;
-      }
-    });
-    if (!text.trim()) {
-      logHook("stop", "Skipping (no assistant content this turn)");
-      process.exit(0);
-    }
-    logHook("stop", `Capturing assistant message via ${source} (${text.length} chars)`);
+    logHook("pre-compact", `Compaction triggered (${trigger})`);
     const honcho = new import_sdk.Honcho(getHonchoClientOptions(config));
-    const noEnsure = () => Promise.resolve();
-    const aiPeer = new import_sdk.Peer(config.aiPeer, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    const createdAt = new Date().toISOString();
-    const messages = chunkContent(text).map((chunk) => aiPeer.message(chunk, {
-      createdAt,
-      metadata: {
-        instance_id: instanceId || undefined,
-        type: "assistant_response",
-        session_affinity: sessionName,
-        source,
-        host: "grok"
-      }
-    }));
-    logApiCall("session.addMessages", "POST", `assistant (${text.length} chars, ${messages.length} chunk(s), ${source})`);
-    const session = new import_sdk.Session(sessionName, honcho.workspaceId, honcho.http, undefined, undefined, noEnsure);
-    await addMessagesBatched(session, messages, (e) => {
-      logHook("stop", `Direct upload failed, retrying via get-or-create: ${e}`);
-      return honcho.session(sessionName);
+    const observationMode = getObservationMode(config);
+    const session = await honcho.session(sessionName);
+    const contextPeer = observationMode === "unified" ? await honcho.peer(config.peerName) : await honcho.peer(config.aiPeer);
+    const contextTarget = observationMode === "unified" ? undefined : config.peerName;
+    logApiCall("peer.context", "GET", observationMode);
+    logApiCall("session.summaries", "GET", sessionName);
+    const [userContext, summaries] = await Promise.all([
+      raceTimeout(contextPeer.context({
+        ...contextTarget ? { target: contextTarget } : {},
+        maxConclusions: 30,
+        includeMostFrequent: true
+      }), FETCH_TIMEOUT_MS),
+      raceTimeout(session.summaries(), FETCH_TIMEOUT_MS)
+    ]);
+    const memoryCard = formatMemoryCard(config, sessionName, userContext, summaries);
+    logHook("pre-compact", `Memory card built (${memoryCard.length} chars); Grok ignores PreCompact stdout so it was not injected`, {
+      trigger
     });
-    logHook("stop", `Saved assistant message (${source})`);
   } catch (error) {
-    logHook("stop", `Upload failed: ${error}`, { error: String(error) });
+    logHook("pre-compact", `Error: ${error}`, { error: String(error) });
   }
   process.exit(0);
 }
 
-// hooks/stop.ts
+// hooks/pre-compact.ts
 await initHook();
-await handleStop();
+await handlePreCompact();

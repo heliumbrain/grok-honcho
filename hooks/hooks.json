@@ -23,6 +23,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|Bash|Task|write|search_replace|run_terminal_command|spawn_subagent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/post-tool-use.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
@@ -30,6 +42,28 @@
             "type": "command",
             "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/user-prompt.js\"",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/pre-compact.js\"",
+            "timeout": 20
+          }
+        ]
+      },
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/pre-compact.js\"",
+            "timeout": 20
           }
         ]
       }

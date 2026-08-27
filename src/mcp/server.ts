@@ -38,6 +38,7 @@ import {
 } from "../config.js";
 import { getLastActiveCwd } from "../cache.js";
 import { getHookHealth, getLogPath } from "../log.js";
+import { validateRedactPattern } from "../redact.js";
 
 const DIALECTIC_TIMEOUT_MS = 120_000;
 
@@ -93,6 +94,8 @@ function handleGetConfig(cwd: string) {
         enabled: cfg.enabled !== false,
         logging: cfg.logging !== false,
         saveMessages: cfg.saveMessages !== false,
+        saveToolUse: cfg.saveToolUse === true,
+        redactPatterns: cfg.redactPatterns ?? [],
         globalOverride: cfg.globalOverride === true,
       }
     : null;
@@ -273,6 +276,26 @@ function handleSetConfig(args: Record<string, unknown>) {
       previousValue = cfg.saveMessages;
       cfg.saveMessages = coerceBoolean(value);
       break;
+    case "saveToolUse":
+      previousValue = cfg.saveToolUse === true;
+      cfg.saveToolUse = coerceBoolean(value);
+      break;
+    case "redactPatterns": {
+      const sources = Array.isArray(value) ? value.map(String) : [String(value)];
+      for (const source of sources) {
+        const err = validateRedactPattern(source);
+        if (err) {
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: err }) }],
+            isError: true,
+          };
+        }
+      }
+      previousValue = cfg.redactPatterns ?? [];
+      cfg.redactPatterns = sources;
+      saveRootField("redactPatterns", cfg.redactPatterns);
+      break;
+    }
     case "reasoningLevel":
       previousValue = cfg.reasoningLevel ?? "medium";
       cfg.reasoningLevel = String(value) as ReasoningLevel;
@@ -510,6 +533,8 @@ export async function runMcpServer(): Promise<void> {
                 "enabled",
                 "logging",
                 "saveMessages",
+                "saveToolUse",
+                "redactPatterns",
                 "reasoningLevel",
                 "observationMode",
                 "sessions.set",

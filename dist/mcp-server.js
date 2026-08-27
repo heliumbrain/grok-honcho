@@ -29754,6 +29754,8 @@ function resolveConfig(raw, host) {
     sessionPeerPrefix: hb?.sessionPeerPrefix ?? raw.sessionPeerPrefix,
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
+    saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
     endpoint,
@@ -29829,6 +29831,8 @@ function saveConfig(config2) {
   }
   if (config2.sessions !== undefined)
     existing.sessions = config2.sessions;
+  if (config2.redactPatterns !== undefined)
+    existing.redactPatterns = config2.redactPatterns;
   const host = getDetectedHost();
   if (!existing.hosts)
     existing.hosts = {};
@@ -29847,6 +29851,7 @@ function saveConfig(config2) {
   setHostIfExplicit("enabled", config2.enabled, existing.enabled);
   setHostIfExplicit("logging", config2.logging, existing.logging);
   setHostIfExplicit("saveMessages", config2.saveMessages, existing.saveMessages);
+  setHostIfExplicit("saveToolUse", config2.saveToolUse, existing.saveToolUse);
   setHostIfExplicit("sessionStrategy", config2.sessionStrategy, existing.sessionStrategy);
   setHostIfExplicit("sessionPeerPrefix", config2.sessionPeerPrefix, existing.sessionPeerPrefix);
   setHostIfExplicit("reasoningLevel", config2.reasoningLevel, existing.reasoningLevel);
@@ -30142,6 +30147,16 @@ function getHookHealth(cwd) {
   }
 }
 
+// src/redact.ts
+function validateRedactPattern(source) {
+  try {
+    new RegExp(source);
+    return null;
+  } catch (e) {
+    return `Invalid regex ${JSON.stringify(source)}: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 // src/mcp/server.ts
 var DIALECTIC_TIMEOUT_MS = 120000;
 var DANGEROUS_FIELDS = new Set(["workspace", "endpoint.environment", "endpoint.baseUrl"]);
@@ -30186,6 +30201,8 @@ function handleGetConfig(cwd) {
     enabled: cfg.enabled !== false,
     logging: cfg.logging !== false,
     saveMessages: cfg.saveMessages !== false,
+    saveToolUse: cfg.saveToolUse === true,
+    redactPatterns: cfg.redactPatterns ?? [],
     globalOverride: cfg.globalOverride === true
   } : null;
   const current = cfg ? {
@@ -30341,6 +30358,26 @@ function handleSetConfig(args) {
       previousValue = cfg.saveMessages;
       cfg.saveMessages = coerceBoolean(value);
       break;
+    case "saveToolUse":
+      previousValue = cfg.saveToolUse === true;
+      cfg.saveToolUse = coerceBoolean(value);
+      break;
+    case "redactPatterns": {
+      const sources = Array.isArray(value) ? value.map(String) : [String(value)];
+      for (const source of sources) {
+        const err = validateRedactPattern(source);
+        if (err) {
+          return {
+            content: [{ type: "text", text: JSON.stringify({ success: false, error: err }) }],
+            isError: true
+          };
+        }
+      }
+      previousValue = cfg.redactPatterns ?? [];
+      cfg.redactPatterns = sources;
+      saveRootField("redactPatterns", cfg.redactPatterns);
+      break;
+    }
     case "reasoningLevel":
       previousValue = cfg.reasoningLevel ?? "medium";
       cfg.reasoningLevel = String(value);
@@ -30563,6 +30600,8 @@ async function runMcpServer() {
                 "enabled",
                 "logging",
                 "saveMessages",
+                "saveToolUse",
+                "redactPatterns",
                 "reasoningLevel",
                 "observationMode",
                 "sessions.set",
