@@ -88,6 +88,8 @@ Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice
 "sessions": { "/home/alice/projects/myapp": "my-session" }
 ```
 
+The `sessions` map is explicit-only (`set_config` `sessions.set`); SessionStart does not auto-pin a directory on first visit. Linked git worktrees resolve to the main repository's session name (and to a main-repo `sessions` entry when present). An explicit mapping for the worktree path still wins.
+
 ## Hooks
 
 | Event | Behavior |
@@ -106,6 +108,8 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 ## MCP tools
 
 `get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`.
+
+Skills: `setup`, `status`, `config`, `briefing`, `interview` (first-run preference capture via `chat` + `create_conclusion`).
 
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 

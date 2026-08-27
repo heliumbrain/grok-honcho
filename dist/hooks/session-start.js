@@ -15585,8 +15585,8 @@ var require_dist = __commonJS((exports) => {
 
 // src/config.ts
 import { homedir } from "os";
-import { basename, join, resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { basename, dirname, join, resolve, sep } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
 var CONFIG_DIR = join(homedir(), ".honcho");
 var CONFIG_FILE = join(CONFIG_DIR, "config.json");
 var HONCHO_BASE_URLS = {
@@ -15761,66 +15761,6 @@ function mergeWithEnvVars(config) {
     config.logging = false;
   return config;
 }
-function deepEqual(a, b) {
-  if (a === b)
-    return true;
-  if (a == null || b == null)
-    return a === b;
-  if (typeof a !== typeof b)
-    return false;
-  if (typeof a !== "object")
-    return false;
-  const aObj = a;
-  const bObj = b;
-  const keys = new Set([...Object.keys(aObj), ...Object.keys(bObj)]);
-  for (const key of keys) {
-    if (!deepEqual(aObj[key], bObj[key]))
-      return false;
-  }
-  return true;
-}
-function saveConfig(config) {
-  if (!existsSync(CONFIG_DIR))
-    mkdirSync(CONFIG_DIR, { recursive: true });
-  let existing = {};
-  if (existsSync(CONFIG_FILE)) {
-    try {
-      existing = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-    } catch {}
-  }
-  if (config.sessions !== undefined)
-    existing.sessions = config.sessions;
-  if (config.redactPatterns !== undefined)
-    existing.redactPatterns = config.redactPatterns;
-  const host = getDetectedHost();
-  if (!existing.hosts)
-    existing.hosts = {};
-  const existingHost = existing.hosts[host] ?? {};
-  const hostEntry = {};
-  const setHostIfExplicit = (key, value, rootValue) => {
-    if (value === undefined)
-      return;
-    const hasHostOverride = Object.prototype.hasOwnProperty.call(existingHost, key);
-    if (hasHostOverride || !deepEqual(value, rootValue)) {
-      hostEntry[key] = value;
-    }
-  };
-  setHostIfExplicit("workspace", config.workspace, existing.workspace ?? DEFAULT_WORKSPACE[host]);
-  setHostIfExplicit("aiPeer", config.aiPeer, existing.aiPeer ?? DEFAULT_AI_PEER[host]);
-  setHostIfExplicit("enabled", config.enabled, existing.enabled);
-  setHostIfExplicit("logging", config.logging, existing.logging);
-  setHostIfExplicit("saveMessages", config.saveMessages, existing.saveMessages);
-  setHostIfExplicit("saveToolUse", config.saveToolUse, existing.saveToolUse);
-  setHostIfExplicit("sessionStrategy", config.sessionStrategy, existing.sessionStrategy);
-  setHostIfExplicit("sessionPeerPrefix", config.sessionPeerPrefix, existing.sessionPeerPrefix);
-  setHostIfExplicit("reasoningLevel", config.reasoningLevel, existing.reasoningLevel);
-  setHostIfExplicit("observationMode", config.observationMode, existing.observationMode);
-  setHostIfExplicit("endpoint", config.endpoint, existing.endpoint);
-  if (existingHost.apiKey !== undefined)
-    hostEntry.apiKey = existingHost.apiKey;
-  existing.hosts[host] = hostEntry;
-  writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2));
-}
 function sanitizeForSessionName(s) {
   return s.toLowerCase().replace(/[^a-z0-9-_]/g, "-");
 }
@@ -15842,6 +15782,43 @@ function sessionOverrideFor(cwd, sessions) {
     if (normalizeCwd(stored) === key)
       return name;
   }
+  return null;
+}
+function resolveWorktreeMainRoot(dir) {
+  try {
+    const gitPath = join(dir, ".git");
+    if (!statSync(gitPath).isFile())
+      return null;
+    const match = readFileSync(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!match?.[1])
+      return null;
+    const gitdir = resolve(dir, match[1]);
+    const idx = gitdir.lastIndexOf(`${sep}worktrees${sep}`);
+    if (idx === -1)
+      return null;
+    const gitContainer = gitdir.slice(0, idx);
+    if (basename(gitContainer) === ".git")
+      return dirname(gitContainer);
+    if (gitContainer.endsWith(".git"))
+      return gitContainer;
+    return null;
+  } catch {
+    return null;
+  }
+}
+var MAX_GIT_WALK_UP = 12;
+function worktreeMainRootFor(cwd) {
+  try {
+    let dir = resolve(cwd);
+    for (let i = 0;i < MAX_GIT_WALK_UP; i++) {
+      if (existsSync(join(dir, ".git")))
+        return resolveWorktreeMainRoot(dir);
+      const parent = dirname(dir);
+      if (parent === dir)
+        break;
+      dir = parent;
+    }
+  } catch {}
   return null;
 }
 function getGitBranch(cwd) {
@@ -15884,35 +15861,30 @@ function getSessionForPath(cwd, config) {
   const cfg = config === undefined ? loadConfig() : config;
   if (!cfg?.sessions)
     return null;
-  return sessionOverrideFor(cwd, cfg.sessions);
+  const direct = sessionOverrideFor(cwd, cfg.sessions);
+  if (direct)
+    return direct;
+  const mainRoot = worktreeMainRootFor(cwd);
+  if (mainRoot)
+    return sessionOverrideFor(mainRoot, cfg.sessions);
+  return null;
 }
 function getSessionName(cwd, instanceId, config, branch) {
   const cfg = config === undefined ? loadConfig() : config;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
   const path = normalizeCwd(cwd);
+  const mainRoot = worktreeMainRootFor(path);
   if (strategy === "per-directory") {
     const override = getSessionForPath(path, cfg);
     if (override)
       return override;
   }
-  return deriveSessionName(strategy, path, {
+  return deriveSessionName(strategy, mainRoot ?? path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
     instanceId
   });
-}
-function setSessionForPath(cwd, sessionName) {
-  const config = loadConfig();
-  if (!config)
-    return;
-  if (!config.sessions)
-    config.sessions = {};
-  const key = normalizeCwd(cwd);
-  config.sessions[key] = sessionName;
-  if (cwd !== key)
-    delete config.sessions[cwd];
-  saveConfig(config);
 }
 function isLoggingEnabled() {
   return loadConfig()?.logging !== false;
@@ -16140,9 +16112,6 @@ async function handleSessionStart() {
     const observationMode = getObservationMode(config);
     const peers = observationMode === "directional" ? [userPeer, [aiPeer, { observeOthers: true }]] : [userPeer, aiPeer];
     await session.addPeers(peers);
-    if (!getSessionForPath(cwd) && (!config.sessionStrategy || config.sessionStrategy === "per-directory")) {
-      setSessionForPath(cwd, sessionName);
-    }
     const [summaryResult] = await Promise.allSettled([
       raceTimeout(session.summaries(), CONTEXT_FETCH_TIMEOUT_MS)
     ]);

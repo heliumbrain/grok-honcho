@@ -29654,8 +29654,8 @@ import { readFileSync as readFileSync4 } from "fs";
 
 // src/config.ts
 import { homedir } from "os";
-import { basename, join, resolve } from "path";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { basename, dirname, join, resolve, sep } from "path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
 var CONFIG_DIR = join(homedir(), ".honcho");
 var CONFIG_FILE = join(CONFIG_DIR, "config.json");
 var HONCHO_BASE_URLS = {
@@ -29897,6 +29897,43 @@ function sessionOverrideFor(cwd, sessions) {
   }
   return null;
 }
+function resolveWorktreeMainRoot(dir) {
+  try {
+    const gitPath = join(dir, ".git");
+    if (!statSync(gitPath).isFile())
+      return null;
+    const match = readFileSync(gitPath, "utf-8").match(/^gitdir:\s*(.+?)\s*$/m);
+    if (!match?.[1])
+      return null;
+    const gitdir = resolve(dir, match[1]);
+    const idx = gitdir.lastIndexOf(`${sep}worktrees${sep}`);
+    if (idx === -1)
+      return null;
+    const gitContainer = gitdir.slice(0, idx);
+    if (basename(gitContainer) === ".git")
+      return dirname(gitContainer);
+    if (gitContainer.endsWith(".git"))
+      return gitContainer;
+    return null;
+  } catch {
+    return null;
+  }
+}
+var MAX_GIT_WALK_UP = 12;
+function worktreeMainRootFor(cwd) {
+  try {
+    let dir = resolve(cwd);
+    for (let i = 0;i < MAX_GIT_WALK_UP; i++) {
+      if (existsSync(join(dir, ".git")))
+        return resolveWorktreeMainRoot(dir);
+      const parent = dirname(dir);
+      if (parent === dir)
+        break;
+      dir = parent;
+    }
+  } catch {}
+  return null;
+}
 function getGitBranch(cwd) {
   try {
     const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
@@ -29937,18 +29974,25 @@ function getSessionForPath(cwd, config2) {
   const cfg = config2 === undefined ? loadConfig() : config2;
   if (!cfg?.sessions)
     return null;
-  return sessionOverrideFor(cwd, cfg.sessions);
+  const direct = sessionOverrideFor(cwd, cfg.sessions);
+  if (direct)
+    return direct;
+  const mainRoot = worktreeMainRootFor(cwd);
+  if (mainRoot)
+    return sessionOverrideFor(mainRoot, cfg.sessions);
+  return null;
 }
 function getSessionName(cwd, instanceId, config2, branch) {
   const cfg = config2 === undefined ? loadConfig() : config2;
   const strategy = cfg?.sessionStrategy ?? "per-directory";
   const path = normalizeCwd(cwd);
+  const mainRoot = worktreeMainRootFor(path);
   if (strategy === "per-directory") {
     const override = getSessionForPath(path, cfg);
     if (override)
       return override;
   }
-  return deriveSessionName(strategy, path, {
+  return deriveSessionName(strategy, mainRoot ?? path, {
     peerName: cfg?.peerName,
     sessionPeerPrefix: cfg?.sessionPeerPrefix,
     branch,
