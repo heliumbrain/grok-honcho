@@ -70,6 +70,18 @@ describe("hook stdin", () => {
     expect(parseHookHealth(log, cwd).lastSessionStartAt).not.toBeNull();
   });
 
+  test("session-start skips Honcho network when saveMessages is false", async () => {
+    const { exitCode, log, stdout } = await runHook(
+      "session-start.ts",
+      { sessionId: "s1", source: "startup" },
+      unreachableConfig({ hosts: { grok: { enabled: true, saveMessages: false } } }),
+    );
+    expect(exitCode).toBe(0);
+    expect(log).toContain("Skipping Honcho network (saveMessages=false)");
+    expect(log).not.toContain("honcho.session/peer");
+    expect(stdout).toContain("saveMessages=false");
+  });
+
   test("user-prompt skips harness-injected content", async () => {
     const { exitCode, log } = await runHook("user-prompt.ts", {
       prompt: "<system-reminder>do not save</system-reminder>",

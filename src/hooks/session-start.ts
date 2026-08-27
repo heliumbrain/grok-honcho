@@ -52,6 +52,19 @@ export async function handleSessionStart(): Promise<void> {
     const sessionName = getSessionName(cwd, instanceId, config, branch);
     setLogContext(cwd, sessionName);
 
+    if (config.saveMessages === false) {
+      logHook("session-start", "Skipping Honcho network (saveMessages=false)");
+      console.log(
+        JSON.stringify({
+          hookSpecificOutput: {
+            hookEventName: "SessionStart",
+            additionalContext: `[Honcho] Message saving is off (saveMessages=false). MCP tools still work — call get_briefing if you need stored memory.`,
+          },
+        }),
+      );
+      process.exit(0);
+    }
+
     logHook("session-start", `Starting session in ${cwd}`);
     logFlow("init", `workspace: ${config.workspace}, peers: ${config.peerName}/${config.aiPeer}`);
 
