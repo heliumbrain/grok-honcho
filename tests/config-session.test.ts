@@ -183,6 +183,33 @@ describe("session naming", () => {
     expect(name).toBe("nils-foo-feat-x");
   });
 
+  test("chat-instance uses a stable sessionId", () => {
+    const name = deriveSessionName("chat-instance", "/repo/foo", {
+      peerName: "nils",
+      instanceId: "sess-abc",
+    });
+    expect(name).toBe("nils-chat-sess-abc");
+  });
+
+  test("chat-instance falls back to the per-directory name without sessionId", () => {
+    const name = deriveSessionName("chat-instance", "/repo/foo", { peerName: "nils" });
+    expect(name).toBe("nils-foo");
+  });
+
+  test("getSessionName chat-instance is distinct per instanceId", () => {
+    const cfg = resolveConfigFromJson(
+      JSON.stringify({
+        apiKey: "test-key-not-real",
+        peerName: "nils",
+        sessionStrategy: "chat-instance",
+      }),
+      "grok",
+    );
+    expect(getSessionName("/tmp/proj", "aaa", cfg)).toBe("nils-chat-aaa");
+    expect(getSessionName("/tmp/proj", "bbb", cfg)).toBe("nils-chat-bbb");
+    expect(getSessionName("/tmp/proj", undefined, cfg)).toBe("nils-proj");
+  });
+
   test("git-branch resolves the current branch", () => {
     const repo = mkdtempSync(join(tmpdir(), "grok-honcho-git-"));
     try {

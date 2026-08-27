@@ -38,4 +38,4 @@ In the TUI, run **`/hooks` → `r`** so plugin hooks bind. On current Grok Build
 
 - Add or update unit tests for payload/config changes.
 - Run `bun test` and `bunx tsc --noEmit` from the repo root.
-- Bump version in `plugin.json` / `package.json` and `CHANGELOG.md` for releases.
+- Bump version in `plugin.json`, `package.json`, `.grok-plugin/marketplace.json`, and `CHANGELOG.md` for releases. A test fails if those versions drift.
