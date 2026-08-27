@@ -88,6 +88,8 @@ Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice
 "sessions": { "/home/alice/projects/myapp": "my-session" }
 ```
 
+The `sessions` map is explicit-only (`set_config` `sessions.set`); SessionStart does not auto-pin a directory on first visit. Linked git worktrees resolve to the main repository's session name (and to a main-repo `sessions` entry when present). An explicit mapping for the worktree path still wins.
+
 ## Hooks
 
 | Event | Behavior |

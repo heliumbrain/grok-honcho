@@ -2,7 +2,7 @@
  * Config + session naming tests against real shipped functions.
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -15,6 +15,7 @@ import {
   detectHost,
   getDefaultAiPeer,
   normalizeCwd,
+  worktreeMainRootFor,
 } from "../src/config.js";
 
 describe("session naming", () => {
@@ -71,6 +72,107 @@ describe("session naming", () => {
       "grok",
     );
     expect(getSessionName("/tmp/proj", undefined, cfg)).toBe("legacy-session");
+  });
+
+  test("linked worktree uses the main repo session name", () => {
+    const root = mkdtempSync(join(tmpdir(), "grok-honcho-wt-"));
+    const main = join(root, "myapp");
+    const worktree = join(root, ".worktrees", "feat-x");
+    try {
+      mkdirSync(join(main, ".git"), { recursive: true });
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(
+        join(worktree, ".git"),
+        `gitdir: ${join(main, ".git", "worktrees", "feat-x")}\n`,
+      );
+
+      expect(worktreeMainRootFor(worktree)).toBe(main);
+      expect(worktreeMainRootFor(join(worktree, "src"))).toBe(main);
+      expect(worktreeMainRootFor(main)).toBeNull();
+
+      const cfg = resolveConfigFromJson(
+        JSON.stringify({
+          apiKey: "test-key-not-real",
+          peerName: "nils",
+          sessionStrategy: "per-directory",
+        }),
+        "grok",
+      );
+      expect(getSessionName(worktree, undefined, cfg)).toBe("nils-myapp");
+      expect(getSessionName(main, undefined, cfg)).toBe("nils-myapp");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("worktree falls through to the main repo sessions map", () => {
+    const root = mkdtempSync(join(tmpdir(), "grok-honcho-wt-map-"));
+    const main = join(root, "myapp");
+    const worktree = join(root, ".worktrees", "feat-x");
+    try {
+      mkdirSync(join(main, ".git"), { recursive: true });
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(
+        join(worktree, ".git"),
+        `gitdir: ${join(main, ".git", "worktrees", "feat-x")}\n`,
+      );
+
+      const cfg = resolveConfigFromJson(
+        JSON.stringify({
+          apiKey: "test-key-not-real",
+          peerName: "nils",
+          sessions: { [main]: "shared-session" },
+          sessionStrategy: "per-directory",
+        }),
+        "grok",
+      );
+      expect(getSessionName(worktree, undefined, cfg)).toBe("shared-session");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("explicit worktree mapping still wins", () => {
+    const root = mkdtempSync(join(tmpdir(), "grok-honcho-wt-direct-"));
+    const main = join(root, "myapp");
+    const worktree = join(root, ".worktrees", "feat-x");
+    try {
+      mkdirSync(join(main, ".git"), { recursive: true });
+      mkdirSync(worktree, { recursive: true });
+      writeFileSync(
+        join(worktree, ".git"),
+        `gitdir: ${join(main, ".git", "worktrees", "feat-x")}\n`,
+      );
+
+      const cfg = resolveConfigFromJson(
+        JSON.stringify({
+          apiKey: "test-key-not-real",
+          peerName: "nils",
+          sessions: { [worktree]: "worktree-only" },
+          sessionStrategy: "per-directory",
+        }),
+        "grok",
+      );
+      expect(getSessionName(worktree, undefined, cfg)).toBe("worktree-only");
+      expect(getSessionName(main, undefined, cfg)).toBe("nils-myapp");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("regular repo and submodule gitdir pointers are not worktrees", () => {
+    const root = mkdtempSync(join(tmpdir(), "grok-honcho-gitdir-"));
+    const repo = join(root, "repo");
+    const sub = join(root, "sub");
+    try {
+      mkdirSync(join(repo, ".git"), { recursive: true });
+      mkdirSync(sub, { recursive: true });
+      writeFileSync(join(sub, ".git"), `gitdir: ${join(repo, ".git", "modules", "sub")}\n`);
+      expect(worktreeMainRootFor(repo)).toBeNull();
+      expect(worktreeMainRootFor(sub)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("git-branch includes branch", () => {

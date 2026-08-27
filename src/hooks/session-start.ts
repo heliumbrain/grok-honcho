@@ -8,8 +8,6 @@ import {
   loadConfig,
   getSessionName,
   getGitBranch,
-  getSessionForPath,
-  setSessionForPath,
   getHonchoClientOptions,
   isPluginEnabled,
   getCachedStdin,
@@ -75,13 +73,6 @@ export async function handleSessionStart(): Promise<void> {
         ? [userPeer, [aiPeer, { observeOthers: true }]]
         : [userPeer, aiPeer];
     await session.addPeers(peers);
-
-    if (
-      !getSessionForPath(cwd) &&
-      (!config.sessionStrategy || config.sessionStrategy === "per-directory")
-    ) {
-      setSessionForPath(cwd, sessionName);
-    }
 
     // Prefer a briefing directive so the model loads summary/peer card via MCP
     // (visible tool call) rather than dumping a large blob into context.
