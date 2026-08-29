@@ -90,6 +90,31 @@ Session naming (default `per-directory`): `{peerName}-{dirname}` → e.g. `alice
 
 The `sessions` map is explicit-only (`set_config` `sessions.set`); SessionStart does not auto-pin a directory on first visit. Linked git worktrees resolve to the main repository's session name (and to a main-repo `sessions` entry when present). An explicit mapping for the worktree path still wins.
 
+| `sessionStrategy` | Name | Notes |
+|-------------------|------|-------|
+| `per-directory` (default) | `{peerName}-{dirname}` | Worktrees share the main repo name |
+| `git-branch` | `{peerName}-{dirname}-{branch}` | Branch comes from the checkout (including worktrees). No branch (outside a repo / detached HEAD) falls back to the per-directory shape |
+| `chat-instance` | `{peerName}-chat-{sessionId}` | Needs a stable Grok `sessionId` for the life of the chat. Missing `sessionId` falls back to the per-directory shape |
+
+### Config reference
+
+Host-level keys go under `hosts.grok` (or fall back to `hosts.claude_code`). Root keys (`apiKey`, `peerName`, `sessions`, `redactPatterns`) are shared.
+
+| Field | Default | When to change it |
+|-------|---------|-------------------|
+| `enabled` | `true` | Kill switch. `false`: hooks no-op; every MCP tool except `get_config`/`set_config` errors. Distinct from `saveMessages`. |
+| `saveMessages` | `true` | `false`: UserPrompt/Stop/PostToolUse skip Honcho uploads. Hooks and MCP still run. |
+| `saveToolUse` | `false` | Opt in to PostToolUse uploads (also requires `saveMessages`). |
+| `logging` | `true` | Write `~/.honcho/activity.log`. |
+| `sessionStrategy` | `per-directory` | See table above. |
+| `sessionPeerPrefix` | `true` | `false` drops `{peerName}-` from session names. Keep `true` in shared/team workspaces to avoid collisions. |
+| `observationMode` | `unified` | `unified`: conclusions stored/read as the user peer. `directional`: the AI peer observes the user. Switching modes does **not** migrate existing conclusions. |
+| `reasoningLevel` | `medium` | Dialectic budget for the `chat` tool (`minimal` … `max`). |
+| `globalOverride` | `false` | `true`: root `workspace`/`aiPeer` win over the host block. Use to force one workspace across hosts. |
+| `redactPatterns` | `[]` | Extra regexes, additive to built-in secret redaction. Invalid patterns are rejected by `set_config`. |
+
+Dangerous `set_config` fields (`workspace`, `endpoint.*`) need `confirm=true`.
+
 ## Hooks
 
 | Event | Behavior |
