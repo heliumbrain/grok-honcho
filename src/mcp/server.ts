@@ -45,6 +45,7 @@ const DIALECTIC_TIMEOUT_MS = 120_000;
 const DANGEROUS_FIELDS = new Set(["workspace", "endpoint.environment", "endpoint.baseUrl"]);
 
 const ENV_SHADOW_MAP: Record<string, string> = {
+  apiKey: "HONCHO_API_KEY",
   peerName: "HONCHO_PEER_NAME",
   workspace: "HONCHO_WORKSPACE",
   aiPeer: "HONCHO_AI_PEER",
@@ -53,6 +54,43 @@ const ENV_SHADOW_MAP: Record<string, string> = {
   saveMessages: "HONCHO_SAVE_MESSAGES",
   "endpoint.baseUrl": "HONCHO_ENDPOINT",
   "endpoint.environment": "HONCHO_ENDPOINT",
+};
+
+const REMEMBER_REASONING_LEVELS = ["low", "medium", "high"] as const;
+const REMEMBER_MAX_QUERIES = 5;
+
+const REMEMBER_TOOL = {
+  name: "honcho_remember",
+  description:
+    "Recall what Honcho knows about the user by asking several questions at once. " +
+    "Fans out up to 5 parallel dialectic queries and returns a labeled, per-question answer. " +
+    "Use this liberally and proactively — before starting a task, whenever the user's " +
+    "preferences, past decisions, or history could shape your response, when you're " +
+    "about to guess at something they've likely told you before, or when the user asks to " +
+    "catch up, resume, or recall what you were working on together. Prefer several " +
+    "focused questions in one call over one broad question. Pick reasoning_level by need: " +
+    "'low' for quick factual lookups, 'medium' for general recall, 'high' for questions " +
+    "that need real reasoning over the user's context.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      queries: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        maxItems: REMEMBER_MAX_QUERIES,
+        description: `1–${REMEMBER_MAX_QUERIES} natural-language questions about the user, dispatched concurrently.`,
+      },
+      reasoning_level: {
+        type: "string",
+        enum: [...REMEMBER_REASONING_LEVELS],
+        description:
+          "Reasoning budget applied to every query in this call. 'low' = quick lookups, " +
+          "'medium' = general recall, 'high' = complex reasoning over the user's context.",
+      },
+    },
+    required: ["queries", "reasoning_level"],
+  },
 };
 
 function resolveCwdForMcp(): string {
@@ -97,6 +135,8 @@ function handleGetConfig(cwd: string) {
         saveToolUse: cfg.saveToolUse === true,
         redactPatterns: cfg.redactPatterns ?? [],
         globalOverride: cfg.globalOverride === true,
+        rememberTool: cfg.rememberTool === true,
+        apiKeySource: cfg.apiKeySource ?? "root",
       }
     : null;
 
@@ -304,6 +344,10 @@ function handleSetConfig(args: Record<string, unknown>) {
       previousValue = cfg.observationMode ?? "unified";
       cfg.observationMode = String(value) as ObservationMode;
       break;
+    case "rememberTool":
+      previousValue = cfg.rememberTool === true;
+      cfg.rememberTool = coerceBoolean(value);
+      break;
     case "sessions.set": {
       const obj = value as Record<string, unknown>;
       if (typeof obj?.path !== "string" || typeof obj?.name !== "string") {
@@ -402,8 +446,27 @@ export async function runMcpServer(): Promise<void> {
     { capabilities: { tools: {} } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const live = loadConfig();
+    const rememberEnabled = live?.rememberTool === true;
+    return {
+      tools: [
+        ...(rememberEnabled ? [REMEMBER_TOOL] : []),
+      {
+        name: "schedule_dream",
+        description:
+          "Trigger background memory consolidation (a Honcho dream). Honcho merges redundant conclusions and derives higher-level insights. Scope follows observationMode: unified dreams as the user peer; directional dreams as the AI peer observing the user.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session: {
+              type: "boolean",
+              description: "If true (default), scope the dream to the current session. If false, dream workspace-wide for this observer.",
+              default: true,
+            },
+          },
+        },
+      },
       {
         name: "search",
         description:
@@ -537,6 +600,7 @@ export async function runMcpServer(): Promise<void> {
                 "redactPatterns",
                 "reasoningLevel",
                 "observationMode",
+                "rememberTool",
                 "sessions.set",
                 "sessions.remove",
               ],
@@ -548,7 +612,8 @@ export async function runMcpServer(): Promise<void> {
         },
       },
     ],
-  }));
+  };
+  });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
@@ -579,6 +644,54 @@ export async function runMcpServer(): Promise<void> {
         ],
         isError: true,
       };
+    }
+
+    if (name === "honcho_remember") {
+      if (activeConfig.rememberTool !== true) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: honcho_remember is off. Enable with set_config field=rememberTool value=true.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      const queries = Array.isArray(args?.queries)
+        ? (args.queries as unknown[]).map(String).map((q) => q.trim()).filter(Boolean)
+        : [];
+      const reasoningLevel = args?.reasoning_level as string;
+      if (queries.length === 0) {
+        return {
+          content: [
+            { type: "text" as const, text: "Error: honcho_remember requires a non-empty `queries` array." },
+          ],
+          isError: true,
+        };
+      }
+      if (queries.length > REMEMBER_MAX_QUERIES) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: honcho_remember accepts at most ${REMEMBER_MAX_QUERIES} queries (got ${queries.length}).`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      if (!(REMEMBER_REASONING_LEVELS as readonly string[]).includes(reasoningLevel)) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Error: reasoning_level must be one of: ${REMEMBER_REASONING_LEVELS.join(", ")}`,
+            },
+          ],
+          isError: true,
+        };
+      }
     }
 
     const honcho = new Honcho(getHonchoClientOptions(activeConfig));
@@ -735,6 +848,126 @@ export async function runMcpServer(): Promise<void> {
             clearTimeout(deadlineTimer);
             chatFlow.catch(() => {});
           }
+        }
+
+        case "honcho_remember": {
+          const queries = Array.isArray(args?.queries)
+            ? (args.queries as unknown[]).map(String).map((q) => q.trim()).filter(Boolean)
+            : [];
+          const reasoningLevel = args?.reasoning_level as string;
+
+          if (activeConfig.rememberTool !== true) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "Error: honcho_remember is off. Enable with set_config field=rememberTool value=true.",
+                },
+              ],
+              isError: true,
+            };
+          }
+          if (queries.length === 0) {
+            return {
+              content: [{ type: "text" as const, text: "Error: honcho_remember requires a non-empty `queries` array." }],
+              isError: true,
+            };
+          }
+          if (queries.length > REMEMBER_MAX_QUERIES) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error: honcho_remember accepts at most ${REMEMBER_MAX_QUERIES} queries (got ${queries.length}).`,
+                },
+              ],
+              isError: true,
+            };
+          }
+          if (!(REMEMBER_REASONING_LEVELS as readonly string[]).includes(reasoningLevel)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error: reasoning_level must be one of: ${REMEMBER_REASONING_LEVELS.join(", ")}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+
+          let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+          const deadline = new Promise<never>((_, reject) => {
+            deadlineTimer = setTimeout(
+              () => reject(new Error(`honcho_remember exceeded ${DIALECTIC_TIMEOUT_MS}ms`)),
+              DIALECTIC_TIMEOUT_MS,
+            );
+          });
+
+          const batchStart = Date.now();
+          const fanOut = (async () => {
+            const dialecticPeer = await honchoDialectic.peer(activePeer.id);
+            return Promise.allSettled(
+              queries.map(async (q) => {
+                const qStart = Date.now();
+                const answer = await dialecticPeer.chat(q, {
+                  ...(chatTarget ? { target: chatTarget } : {}),
+                  session,
+                  reasoningLevel,
+                });
+                return { answer, ms: Date.now() - qStart };
+              }),
+            );
+          })();
+
+          try {
+            const settled = await Promise.race([fanOut, deadline]);
+            const totalMs = Date.now() - batchStart;
+            const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
+            const hits = settled.filter((r) => r.status === "fulfilled" && r.value.answer).length;
+            const header =
+              `recalled ${hits} insight${hits === 1 ? "" : "s"} · ` +
+              `${queries.length} dialectic${queries.length === 1 ? "" : "s"} @ ${reasoningLevel} · ${secs(totalMs)}`;
+            const blocks = settled.map((r, i) => {
+              const label = `q${i + 1} "${queries[i]}"`;
+              if (r.status === "rejected") {
+                const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+                return `${label} — failed\n→ (error: ${msg})`;
+              }
+              const { answer, ms } = r.value;
+              const body = answer && answer.trim() ? answer.trim() : "(no memory found)";
+              return `${label} — ${secs(ms)}\n→ ${body}`;
+            });
+            return {
+              content: [{ type: "text" as const, text: `${header}\n\n${blocks.join("\n\n")}` }],
+            };
+          } finally {
+            clearTimeout(deadlineTimer);
+            fanOut.catch(() => {});
+          }
+        }
+
+        case "schedule_dream": {
+          const scopeToSession = args?.session !== false;
+          const observationMode = getObservationMode(activeConfig);
+          const observer =
+            observationMode === "unified" ? activeConfig.peerName : activeConfig.aiPeer;
+          const observed =
+            observationMode === "directional" ? activeConfig.peerName : undefined;
+          await honcho.scheduleDream({
+            observer,
+            ...(observed ? { observed } : {}),
+            ...(scopeToSession ? { session } : {}),
+          });
+          const scope = scopeToSession ? `session ${sessionName}` : "workspace";
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Scheduled dream for observer=${observer}${observed ? ` observed=${observed}` : ""} (${scope}). Consolidation runs in the background.`,
+              },
+            ],
+          };
         }
 
         case "create_conclusion": {

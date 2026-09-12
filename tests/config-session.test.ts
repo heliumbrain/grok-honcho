@@ -350,4 +350,68 @@ describe("self-hosted endpoint resolution", () => {
     );
     expect(cfg!.endpoint?.baseUrl).toBe("http://honcho.pandacrew.xyz");
   });
+
+  test("hosts.grok.apiKey is used when root apiKey is absent", () => {
+    const cfg = resolveConfigFromJson(
+      JSON.stringify({
+        peerName: "nils",
+        hosts: { grok: { apiKey: "host-only-key", workspace: "default" } },
+      }),
+      "grok",
+    );
+    expect(cfg).not.toBeNull();
+    expect(cfg!.apiKey).toBe("host-only-key");
+    expect(cfg!.apiKeySource).toBe("host");
+  });
+
+  test("root apiKey is used when hosts.grok.apiKey is absent", () => {
+    const cfg = resolveConfigFromJson(
+      JSON.stringify({
+        apiKey: "root-key",
+        peerName: "nils",
+        hosts: { grok: { workspace: "default" } },
+      }),
+      "grok",
+    );
+    expect(cfg!.apiKey).toBe("root-key");
+    expect(cfg!.apiKeySource).toBe("root");
+  });
+
+  test("HONCHO_API_KEY wins over hosts.grok.apiKey and root apiKey", () => {
+    const prev = process.env.HONCHO_API_KEY;
+    process.env.HONCHO_API_KEY = "env-key";
+    try {
+      const cfg = resolveConfigFromJson(
+        JSON.stringify({
+          apiKey: "root-key",
+          peerName: "nils",
+          hosts: { grok: { apiKey: "host-key" } },
+        }),
+        "grok",
+      );
+      expect(cfg!.apiKey).toBe("env-key");
+      expect(cfg!.apiKeySource).toBe("env");
+    } finally {
+      if (prev === undefined) delete process.env.HONCHO_API_KEY;
+      else process.env.HONCHO_API_KEY = prev;
+    }
+  });
+
+  test("rememberTool is off by default and reads from hosts.grok", () => {
+    const off = resolveConfigFromJson(
+      JSON.stringify({ apiKey: "k", peerName: "nils", hosts: { grok: {} } }),
+      "grok",
+    );
+    expect(off!.rememberTool).toBeUndefined();
+
+    const on = resolveConfigFromJson(
+      JSON.stringify({
+        apiKey: "k",
+        peerName: "nils",
+        hosts: { grok: { rememberTool: true } },
+      }),
+      "grok",
+    );
+    expect(on!.rememberTool).toBe(true);
+  });
 });
