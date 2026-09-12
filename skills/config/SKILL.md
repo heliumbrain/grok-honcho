@@ -9,10 +9,10 @@ Config lives at `~/.honcho/config.json` (shared with Claude/other hosts). Prefer
 
 ```json
 {
-  "apiKey": "…",
   "peerName": "alice",
   "hosts": {
     "grok": {
+      "apiKey": "…",
       "workspace": "default",
       "aiPeer": "grok",
       "sessionStrategy": "per-directory",
@@ -22,7 +22,9 @@ Config lives at `~/.honcho/config.json` (shared with Claude/other hosts). Prefer
 }
 ```
 
-Use MCP `get_config` to inspect, `set_config` for careful field updates. Dangerous fields (`workspace`, `endpoint.*`) require `confirm: true`.
+API key: `HONCHO_API_KEY` → `hosts.grok.apiKey` → root `apiKey`. `get_config` reports `resolved.apiKeySource` (`env`/`host`/`root`) and never returns the key.
+
+Use MCP `get_config` to inspect, `set_config` for careful field updates. Dangerous fields (`workspace`, `endpoint.*`) require `confirm: true`. To enable batched recall: `set_config` `field=rememberTool` `value=true` (then `honcho_remember` appears in the tool list). `schedule_dream` is always available.
 
 See the **Config reference** table in the plugin README for `observationMode`, `reasoningLevel`, `sessionPeerPrefix`, `globalOverride`, and `enabled` vs `saveMessages`.
 

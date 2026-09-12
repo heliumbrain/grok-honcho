@@ -101,7 +101,18 @@ function loadConfig(host) {
 }
 function resolveConfig(raw, host) {
   const hb = resolveHostBlock(raw, host);
-  const apiKey = process.env.HONCHO_API_KEY || hb?.apiKey || raw.apiKey;
+  let apiKey;
+  let apiKeySource = "root";
+  if (process.env.HONCHO_API_KEY) {
+    apiKey = process.env.HONCHO_API_KEY;
+    apiKeySource = "env";
+  } else if (hb?.apiKey) {
+    apiKey = hb.apiKey;
+    apiKeySource = "host";
+  } else if (raw.apiKey) {
+    apiKey = raw.apiKey;
+    apiKeySource = "root";
+  }
   if (!apiKey)
     return null;
   const peerName = raw.peerName || process.env.HONCHO_PEER_NAME || process.env.USER || process.env.USERNAME || "user";
@@ -120,6 +131,7 @@ function resolveConfig(raw, host) {
   const endpoint = normalizeEndpoint(hb?.endpoint ?? raw.endpoint);
   const config = {
     apiKey,
+    apiKeySource,
     peerName,
     workspace,
     aiPeer,
@@ -128,6 +140,7 @@ function resolveConfig(raw, host) {
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
     saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    rememberTool: hb?.rememberTool ?? raw.rememberTool,
     redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
@@ -149,6 +162,7 @@ function loadConfigFromEnv(host) {
   const endpointEnv = process.env.HONCHO_ENDPOINT;
   const config = {
     apiKey,
+    apiKeySource: "env",
     peerName,
     workspace,
     aiPeer,
@@ -165,8 +179,10 @@ function loadConfigFromEnv(host) {
   return config;
 }
 function mergeWithEnvVars(config) {
-  if (process.env.HONCHO_API_KEY)
+  if (process.env.HONCHO_API_KEY) {
     config.apiKey = process.env.HONCHO_API_KEY;
+    config.apiKeySource = "env";
+  }
   if (process.env.HONCHO_PEER_NAME)
     config.peerName = process.env.HONCHO_PEER_NAME;
   if (process.env.HONCHO_ENABLED === "false")

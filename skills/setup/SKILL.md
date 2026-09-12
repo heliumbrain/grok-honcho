@@ -18,7 +18,7 @@ grok plugin install heliumbrain/grok-honcho --trust
 grok plugin enable honcho
 ```
 
-3. Configure `~/.honcho/config.json` with at least `apiKey` and preferred `hosts.grok` (or reuse an existing Claude host block — this plugin falls back to `hosts.claude_code` for endpoint/workspace).
+3. Configure `~/.honcho/config.json` with a preferred `hosts.grok` block. API key resolution is `HONCHO_API_KEY` → `hosts.grok.apiKey` → root `apiKey`. Existing Claude setups still work via `hosts.claude_code` fallback.
 
 4. **Bind plugin hooks** (Grok host quirk — required until fixed upstream): open **`/hooks`** → press **`r`**.  
    Only **Global** hooks under `~/.grok/hooks/` auto-load on cold start. Plugin hooks (honcho, phx, …) are discovered/trusted but not attached until that reload. A brand-new Grok process + session is **not** enough. MCP from this plugin may already work before reload.

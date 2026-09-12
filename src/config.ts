@@ -30,6 +30,8 @@ export interface HostConfig {
   saveMessages?: boolean;
   /** Opt-in PostToolUse upload. Default off. */
   saveToolUse?: boolean;
+  /** Opt-in `honcho_remember` MCP tool. Default off. */
+  rememberTool?: boolean;
   sessionStrategy?: SessionStrategy;
   sessionPeerPrefix?: boolean;
   reasoningLevel?: ReasoningLevel;
@@ -45,6 +47,7 @@ interface HonchoFileConfig {
   sessions?: Record<string, string>;
   saveMessages?: boolean;
   saveToolUse?: boolean;
+  rememberTool?: boolean;
   redactPatterns?: string[];
   enabled?: boolean;
   logging?: boolean;
@@ -62,6 +65,7 @@ interface HonchoFileConfig {
 export interface HonchoRuntimeConfig {
   peerName: string;
   apiKey: string;
+  apiKeySource?: "env" | "host" | "root";
   workspace: string;
   aiPeer: string;
   sessionStrategy?: SessionStrategy;
@@ -76,6 +80,7 @@ export interface HonchoRuntimeConfig {
   enabled?: boolean;
   logging?: boolean;
   globalOverride?: boolean;
+  rememberTool?: boolean;
 }
 
 const CONFIG_DIR = join(homedir(), ".honcho");
@@ -223,7 +228,18 @@ export function loadConfig(host?: HonchoHost): HonchoRuntimeConfig | null {
 
 function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoRuntimeConfig | null {
   const hb = resolveHostBlock(raw, host);
-  const apiKey = process.env.HONCHO_API_KEY || hb?.apiKey || raw.apiKey;
+  let apiKey: string | undefined;
+  let apiKeySource: HonchoRuntimeConfig["apiKeySource"] = "root";
+  if (process.env.HONCHO_API_KEY) {
+    apiKey = process.env.HONCHO_API_KEY;
+    apiKeySource = "env";
+  } else if (hb?.apiKey) {
+    apiKey = hb.apiKey;
+    apiKeySource = "host";
+  } else if (raw.apiKey) {
+    apiKey = raw.apiKey;
+    apiKeySource = "root";
+  }
   if (!apiKey) return null;
 
   const peerName =
@@ -247,6 +263,7 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoRuntimeCo
 
   const config: HonchoRuntimeConfig = {
     apiKey,
+    apiKeySource,
     peerName,
     workspace,
     aiPeer,
@@ -255,6 +272,7 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoRuntimeCo
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
     saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    rememberTool: hb?.rememberTool ?? raw.rememberTool,
     redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
@@ -280,6 +298,7 @@ export function loadConfigFromEnv(host?: HonchoHost): HonchoRuntimeConfig | null
 
   const config: HonchoRuntimeConfig = {
     apiKey,
+    apiKeySource: "env",
     peerName,
     workspace,
     aiPeer,
@@ -297,7 +316,10 @@ export function loadConfigFromEnv(host?: HonchoHost): HonchoRuntimeConfig | null
 }
 
 function mergeWithEnvVars(config: HonchoRuntimeConfig): HonchoRuntimeConfig {
-  if (process.env.HONCHO_API_KEY) config.apiKey = process.env.HONCHO_API_KEY;
+  if (process.env.HONCHO_API_KEY) {
+    config.apiKey = process.env.HONCHO_API_KEY;
+    config.apiKeySource = "env";
+  }
   if (process.env.HONCHO_PEER_NAME) config.peerName = process.env.HONCHO_PEER_NAME;
   if (process.env.HONCHO_ENABLED === "false") config.enabled = false;
   if (process.env.HONCHO_LOGGING === "false") config.logging = false;
@@ -360,6 +382,7 @@ export function saveConfig(config: HonchoRuntimeConfig): void {
   setHostIfExplicit("logging", config.logging, existing.logging);
   setHostIfExplicit("saveMessages", config.saveMessages, existing.saveMessages);
   setHostIfExplicit("saveToolUse", config.saveToolUse, existing.saveToolUse);
+  setHostIfExplicit("rememberTool", config.rememberTool, existing.rememberTool);
   setHostIfExplicit("sessionStrategy", config.sessionStrategy, existing.sessionStrategy);
   setHostIfExplicit("sessionPeerPrefix", config.sessionPeerPrefix, existing.sessionPeerPrefix);
   setHostIfExplicit("reasoningLevel", config.reasoningLevel, existing.reasoningLevel);

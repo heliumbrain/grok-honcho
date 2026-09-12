@@ -38,6 +38,9 @@ Covers:
 - `stopHookActive` visible to handlers
 - Session naming `nils-svarm` / overrides
 - Self-hosted `hosts.grok` and fallback to `hosts.claude_code`
+- Per-host `apiKey` (`hosts.grok.apiKey` vs root vs `HONCHO_API_KEY`) and `get_config.resolved.apiKeySource`
+- Opt-in `honcho_remember` (hidden until `rememberTool=true`; arg validation without Honcho)
+- `schedule_dream` listed; SessionStart directives switch on `rememberTool`
 
 ## Local install (gating)
 
@@ -86,7 +89,14 @@ Check `~/.honcho/activity.log` for `grok-honcho:session-start` / `stop` lines wi
 
 ## MCP get_config
 
-With plugin trusted, call `get_config` in a Grok session opened in a known dir (e.g. `…/svarm`). Session field should be `{peerName}-{dirname}` or a manual override for that path — not another project’s name.
+With plugin trusted, call `get_config` in a Grok session opened in a known dir (e.g. `…/svarm`). Session field should be `{peerName}-{dirname}` or a manual override for that path — not another project’s name. `resolved.apiKeySource` should be `env`, `host`, or `root`; the key itself must not appear.
+
+## MCP remember / dream
+
+- Default: `listTools` includes `schedule_dream` and does **not** include `honcho_remember`.
+- `set_config field=rememberTool value=true`, then `listTools` includes `honcho_remember`.
+- Invalid `honcho_remember` args (empty queries, more than 5, `reasoning_level=max`) error without contacting Honcho.
+- Live Honcho (optional): `honcho_remember` with 1–2 `low` queries returns labeled answers; `schedule_dream` returns a scheduled confirmation.
 
 ## Publish
 
