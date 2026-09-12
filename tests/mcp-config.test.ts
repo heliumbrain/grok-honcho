@@ -76,6 +76,8 @@ describe("MCP config", () => {
         const status = await client.callTool({ name: "get_config", arguments: {} });
         const config = JSON.parse(toolText(status as { content: Array<{ type: string; text?: string }> }));
         expect(config.resolved.enabled).toBe(false);
+        expect(config.resolved.rememberTool).toBe(false);
+        expect(config.resolved.apiKeySource).toBe("root");
         expect(config.plugin).toEqual({ name: "grok-honcho", version: "0.1.4" });
       },
     );

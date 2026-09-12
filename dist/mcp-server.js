@@ -29728,7 +29728,18 @@ function loadConfig(host) {
 }
 function resolveConfig(raw, host) {
   const hb = resolveHostBlock(raw, host);
-  const apiKey = process.env.HONCHO_API_KEY || hb?.apiKey || raw.apiKey;
+  let apiKey;
+  let apiKeySource = "root";
+  if (process.env.HONCHO_API_KEY) {
+    apiKey = process.env.HONCHO_API_KEY;
+    apiKeySource = "env";
+  } else if (hb?.apiKey) {
+    apiKey = hb.apiKey;
+    apiKeySource = "host";
+  } else if (raw.apiKey) {
+    apiKey = raw.apiKey;
+    apiKeySource = "root";
+  }
   if (!apiKey)
     return null;
   const peerName = raw.peerName || process.env.HONCHO_PEER_NAME || process.env.USER || process.env.USERNAME || "user";
@@ -29747,6 +29758,7 @@ function resolveConfig(raw, host) {
   const endpoint = normalizeEndpoint(hb?.endpoint ?? raw.endpoint);
   const config2 = {
     apiKey,
+    apiKeySource,
     peerName,
     workspace,
     aiPeer,
@@ -29755,6 +29767,7 @@ function resolveConfig(raw, host) {
     sessions: raw.sessions,
     saveMessages: hb?.saveMessages ?? raw.saveMessages,
     saveToolUse: hb?.saveToolUse ?? raw.saveToolUse,
+    rememberTool: hb?.rememberTool ?? raw.rememberTool,
     redactPatterns: raw.redactPatterns,
     reasoningLevel: hb?.reasoningLevel ?? raw.reasoningLevel,
     observationMode: hb?.observationMode ?? raw.observationMode,
@@ -29776,6 +29789,7 @@ function loadConfigFromEnv(host) {
   const endpointEnv = process.env.HONCHO_ENDPOINT;
   const config2 = {
     apiKey,
+    apiKeySource: "env",
     peerName,
     workspace,
     aiPeer,
@@ -29792,8 +29806,10 @@ function loadConfigFromEnv(host) {
   return config2;
 }
 function mergeWithEnvVars(config2) {
-  if (process.env.HONCHO_API_KEY)
+  if (process.env.HONCHO_API_KEY) {
     config2.apiKey = process.env.HONCHO_API_KEY;
+    config2.apiKeySource = "env";
+  }
   if (process.env.HONCHO_PEER_NAME)
     config2.peerName = process.env.HONCHO_PEER_NAME;
   if (process.env.HONCHO_ENABLED === "false")
@@ -29852,6 +29868,7 @@ function saveConfig(config2) {
   setHostIfExplicit("logging", config2.logging, existing.logging);
   setHostIfExplicit("saveMessages", config2.saveMessages, existing.saveMessages);
   setHostIfExplicit("saveToolUse", config2.saveToolUse, existing.saveToolUse);
+  setHostIfExplicit("rememberTool", config2.rememberTool, existing.rememberTool);
   setHostIfExplicit("sessionStrategy", config2.sessionStrategy, existing.sessionStrategy);
   setHostIfExplicit("sessionPeerPrefix", config2.sessionPeerPrefix, existing.sessionPeerPrefix);
   setHostIfExplicit("reasoningLevel", config2.reasoningLevel, existing.reasoningLevel);
@@ -30161,6 +30178,7 @@ function validateRedactPattern(source) {
 var DIALECTIC_TIMEOUT_MS = 120000;
 var DANGEROUS_FIELDS = new Set(["workspace", "endpoint.environment", "endpoint.baseUrl"]);
 var ENV_SHADOW_MAP = {
+  apiKey: "HONCHO_API_KEY",
   peerName: "HONCHO_PEER_NAME",
   workspace: "HONCHO_WORKSPACE",
   aiPeer: "HONCHO_AI_PEER",
@@ -30169,6 +30187,30 @@ var ENV_SHADOW_MAP = {
   saveMessages: "HONCHO_SAVE_MESSAGES",
   "endpoint.baseUrl": "HONCHO_ENDPOINT",
   "endpoint.environment": "HONCHO_ENDPOINT"
+};
+var REMEMBER_REASONING_LEVELS = ["low", "medium", "high"];
+var REMEMBER_MAX_QUERIES = 5;
+var REMEMBER_TOOL = {
+  name: "honcho_remember",
+  description: "Recall what Honcho knows about the user by asking several questions at once. " + "Fans out up to 5 parallel dialectic queries and returns a labeled, per-question answer. " + "Use this liberally and proactively \u2014 before starting a task, whenever the user's " + "preferences, past decisions, or history could shape your response, when you're " + "about to guess at something they've likely told you before, or when the user asks to " + "catch up, resume, or recall what you were working on together. Prefer several " + "focused questions in one call over one broad question. Pick reasoning_level by need: " + "'low' for quick factual lookups, 'medium' for general recall, 'high' for questions " + "that need real reasoning over the user's context.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      queries: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 1,
+        maxItems: REMEMBER_MAX_QUERIES,
+        description: `1\u2013${REMEMBER_MAX_QUERIES} natural-language questions about the user, dispatched concurrently.`
+      },
+      reasoning_level: {
+        type: "string",
+        enum: [...REMEMBER_REASONING_LEVELS],
+        description: "Reasoning budget applied to every query in this call. 'low' = quick lookups, " + "'medium' = general recall, 'high' = complex reasoning over the user's context."
+      }
+    },
+    required: ["queries", "reasoning_level"]
+  }
 };
 function resolveCwdForMcp() {
   return normalizeCwd(getLastActiveCwd() || process.cwd());
@@ -30203,7 +30245,9 @@ function handleGetConfig(cwd) {
     saveMessages: cfg.saveMessages !== false,
     saveToolUse: cfg.saveToolUse === true,
     redactPatterns: cfg.redactPatterns ?? [],
-    globalOverride: cfg.globalOverride === true
+    globalOverride: cfg.globalOverride === true,
+    rememberTool: cfg.rememberTool === true,
+    apiKeySource: cfg.apiKeySource ?? "root"
   } : null;
   const current = cfg ? {
     workspace: cfg.workspace,
@@ -30386,6 +30430,10 @@ function handleSetConfig(args) {
       previousValue = cfg.observationMode ?? "unified";
       cfg.observationMode = String(value);
       break;
+    case "rememberTool":
+      previousValue = cfg.rememberTool === true;
+      cfg.rememberTool = coerceBoolean(value);
+      break;
     case "sessions.set": {
       const obj = value;
       if (typeof obj?.path !== "string" || typeof obj?.name !== "string") {
@@ -30474,148 +30522,168 @@ async function runMcpServer() {
     console.error("[grok-honcho] MCP: no config (need apiKey in ~/.honcho/config.json or HONCHO_API_KEY)");
   }
   const server = new Server({ name: "honcho", version: getPluginVersion() }, { capabilities: { tools: {} } });
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: "search",
-        description: "Semantic search across messages and saved conclusions. Messages default to the current session; use scope='workspace' for all sessions. Conclusions are always searched workspace-wide.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query" },
-            limit: { type: "number", description: "Max results (1-50)", default: 10 },
-            scope: {
-              type: "string",
-              enum: ["session", "workspace"],
-              description: "Search scope",
-              default: "session"
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const live = loadConfig();
+    const rememberEnabled = live?.rememberTool === true;
+    return {
+      tools: [
+        ...rememberEnabled ? [REMEMBER_TOOL] : [],
+        {
+          name: "schedule_dream",
+          description: "Trigger background memory consolidation (a Honcho dream). Honcho merges redundant conclusions and derives higher-level insights. Scope follows observationMode: unified dreams as the user peer; directional dreams as the AI peer observing the user.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              session: {
+                type: "boolean",
+                description: "If true (default), scope the dream to the current session. If false, dream workspace-wide for this observer.",
+                default: true
+              }
             }
-          },
-          required: ["query"]
-        }
-      },
-      {
-        name: "chat",
-        description: "Query Honcho's knowledge about the user using dialectic reasoning",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Natural language question about the user" },
-            reasoning_level: {
-              type: "string",
-              enum: ["minimal", "low", "medium", "high", "max"],
-              description: "Reasoning budget"
-            }
-          },
-          required: ["query"]
-        }
-      },
-      {
-        name: "create_conclusion",
-        description: "Save a key insight or biographical detail about the user",
-        inputSchema: {
-          type: "object",
-          properties: {
-            content: { type: "string", description: "The insight or fact to remember" }
-          },
-          required: ["content"]
-        }
-      },
-      {
-        name: "list_conclusions",
-        description: "List conclusions Honcho has saved about the user. Use this to review what is remembered before creating duplicates, or to find IDs for deletion.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            page: { type: "number", default: 1 },
-            size: { type: "number", default: 20 }
           }
-        }
-      },
-      {
-        name: "query_conclusions",
-        description: "Semantically search conclusions Honcho has saved about the user. Returns IDs usable with delete_conclusion.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query" },
-            top_k: { type: "number", description: "Max results (default 10)", default: 10 }
-          },
-          required: ["query"]
-        }
-      },
-      {
-        name: "delete_conclusion",
-        description: "Delete a conclusion from Honcho's memory by ID. Use query_conclusions or list_conclusions to find the ID first.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: { type: "string", description: "The conclusion ID to delete" }
-          },
-          required: ["id"]
-        }
-      },
-      {
-        name: "get_briefing",
-        description: "Load the session briefing: long summary plus user peer card. Call at session start when directives ask for it.",
-        inputSchema: { type: "object", properties: {} }
-      },
-      {
-        name: "get_context",
-        description: "Full context object (representation + peer card) for the current user",
-        inputSchema: {
-          type: "object",
-          properties: {
-            max_conclusions: { type: "number", default: 25 }
-          }
-        }
-      },
-      {
-        name: "get_representation",
-        description: "User representation string from Honcho (lighter than get_context)",
-        inputSchema: { type: "object", properties: {} }
-      },
-      {
-        name: "get_config",
-        description: "Current Honcho plugin configuration, session name, and diagnostics",
-        inputSchema: { type: "object", properties: {} }
-      },
-      {
-        name: "set_config",
-        description: "Update a Honcho config field. Dangerous changes need confirm=true.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            field: {
-              type: "string",
-              enum: [
-                "peerName",
-                "aiPeer",
-                "workspace",
-                "globalOverride",
-                "endpoint.environment",
-                "endpoint.baseUrl",
-                "sessionStrategy",
-                "sessionPeerPrefix",
-                "enabled",
-                "logging",
-                "saveMessages",
-                "saveToolUse",
-                "redactPatterns",
-                "reasoningLevel",
-                "observationMode",
-                "sessions.set",
-                "sessions.remove"
-              ]
+        },
+        {
+          name: "search",
+          description: "Semantic search across messages and saved conclusions. Messages default to the current session; use scope='workspace' for all sessions. Conclusions are always searched workspace-wide.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Search query" },
+              limit: { type: "number", description: "Max results (1-50)", default: 10 },
+              scope: {
+                type: "string",
+                enum: ["session", "workspace"],
+                description: "Search scope",
+                default: "session"
+              }
             },
-            value: { description: "New value" },
-            confirm: { type: "boolean" }
-          },
-          required: ["field", "value"]
+            required: ["query"]
+          }
+        },
+        {
+          name: "chat",
+          description: "Query Honcho's knowledge about the user using dialectic reasoning",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Natural language question about the user" },
+              reasoning_level: {
+                type: "string",
+                enum: ["minimal", "low", "medium", "high", "max"],
+                description: "Reasoning budget"
+              }
+            },
+            required: ["query"]
+          }
+        },
+        {
+          name: "create_conclusion",
+          description: "Save a key insight or biographical detail about the user",
+          inputSchema: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "The insight or fact to remember" }
+            },
+            required: ["content"]
+          }
+        },
+        {
+          name: "list_conclusions",
+          description: "List conclusions Honcho has saved about the user. Use this to review what is remembered before creating duplicates, or to find IDs for deletion.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              page: { type: "number", default: 1 },
+              size: { type: "number", default: 20 }
+            }
+          }
+        },
+        {
+          name: "query_conclusions",
+          description: "Semantically search conclusions Honcho has saved about the user. Returns IDs usable with delete_conclusion.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Search query" },
+              top_k: { type: "number", description: "Max results (default 10)", default: 10 }
+            },
+            required: ["query"]
+          }
+        },
+        {
+          name: "delete_conclusion",
+          description: "Delete a conclusion from Honcho's memory by ID. Use query_conclusions or list_conclusions to find the ID first.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "The conclusion ID to delete" }
+            },
+            required: ["id"]
+          }
+        },
+        {
+          name: "get_briefing",
+          description: "Load the session briefing: long summary plus user peer card. Call at session start when directives ask for it.",
+          inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "get_context",
+          description: "Full context object (representation + peer card) for the current user",
+          inputSchema: {
+            type: "object",
+            properties: {
+              max_conclusions: { type: "number", default: 25 }
+            }
+          }
+        },
+        {
+          name: "get_representation",
+          description: "User representation string from Honcho (lighter than get_context)",
+          inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "get_config",
+          description: "Current Honcho plugin configuration, session name, and diagnostics",
+          inputSchema: { type: "object", properties: {} }
+        },
+        {
+          name: "set_config",
+          description: "Update a Honcho config field. Dangerous changes need confirm=true.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              field: {
+                type: "string",
+                enum: [
+                  "peerName",
+                  "aiPeer",
+                  "workspace",
+                  "globalOverride",
+                  "endpoint.environment",
+                  "endpoint.baseUrl",
+                  "sessionStrategy",
+                  "sessionPeerPrefix",
+                  "enabled",
+                  "logging",
+                  "saveMessages",
+                  "saveToolUse",
+                  "redactPatterns",
+                  "reasoningLevel",
+                  "observationMode",
+                  "rememberTool",
+                  "sessions.set",
+                  "sessions.remove"
+                ]
+              },
+              value: { description: "New value" },
+              confirm: { type: "boolean" }
+            },
+            required: ["field", "value"]
+          }
         }
-      }
-    ]
-  }));
+      ]
+    };
+  });
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     const cwd = resolveCwdForMcp();
@@ -30645,6 +30713,51 @@ async function runMcpServer() {
         ],
         isError: true
       };
+    }
+    if (name === "honcho_remember") {
+      if (activeConfig.rememberTool !== true) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Error: honcho_remember is off. Enable with set_config field=rememberTool value=true."
+            }
+          ],
+          isError: true
+        };
+      }
+      const queries = Array.isArray(args?.queries) ? args.queries.map(String).map((q) => q.trim()).filter(Boolean) : [];
+      const reasoningLevel = args?.reasoning_level;
+      if (queries.length === 0) {
+        return {
+          content: [
+            { type: "text", text: "Error: honcho_remember requires a non-empty `queries` array." }
+          ],
+          isError: true
+        };
+      }
+      if (queries.length > REMEMBER_MAX_QUERIES) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: honcho_remember accepts at most ${REMEMBER_MAX_QUERIES} queries (got ${queries.length}).`
+            }
+          ],
+          isError: true
+        };
+      }
+      if (!REMEMBER_REASONING_LEVELS.includes(reasoningLevel)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Error: reasoning_level must be one of: ${REMEMBER_REASONING_LEVELS.join(", ")}`
+            }
+          ],
+          isError: true
+        };
+      }
     }
     const honcho = new import_sdk.Honcho(getHonchoClientOptions(activeConfig));
     const honchoDialectic = new import_sdk.Honcho({
@@ -30774,6 +30887,115 @@ async function runMcpServer() {
             clearTimeout(deadlineTimer);
             chatFlow.catch(() => {});
           }
+        }
+        case "honcho_remember": {
+          const queries = Array.isArray(args?.queries) ? args.queries.map(String).map((q) => q.trim()).filter(Boolean) : [];
+          const reasoningLevel = args?.reasoning_level;
+          if (activeConfig.rememberTool !== true) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Error: honcho_remember is off. Enable with set_config field=rememberTool value=true."
+                }
+              ],
+              isError: true
+            };
+          }
+          if (queries.length === 0) {
+            return {
+              content: [{ type: "text", text: "Error: honcho_remember requires a non-empty `queries` array." }],
+              isError: true
+            };
+          }
+          if (queries.length > REMEMBER_MAX_QUERIES) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error: honcho_remember accepts at most ${REMEMBER_MAX_QUERIES} queries (got ${queries.length}).`
+                }
+              ],
+              isError: true
+            };
+          }
+          if (!REMEMBER_REASONING_LEVELS.includes(reasoningLevel)) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Error: reasoning_level must be one of: ${REMEMBER_REASONING_LEVELS.join(", ")}`
+                }
+              ],
+              isError: true
+            };
+          }
+          let deadlineTimer;
+          const deadline = new Promise((_, reject) => {
+            deadlineTimer = setTimeout(() => reject(new Error(`honcho_remember exceeded ${DIALECTIC_TIMEOUT_MS}ms`)), DIALECTIC_TIMEOUT_MS);
+          });
+          const batchStart = Date.now();
+          const fanOut = (async () => {
+            const dialecticPeer = await honchoDialectic.peer(activePeer.id);
+            return Promise.allSettled(queries.map(async (q) => {
+              const qStart = Date.now();
+              const answer = await dialecticPeer.chat(q, {
+                ...chatTarget ? { target: chatTarget } : {},
+                session,
+                reasoningLevel
+              });
+              return { answer, ms: Date.now() - qStart };
+            }));
+          })();
+          try {
+            const settled = await Promise.race([fanOut, deadline]);
+            const totalMs = Date.now() - batchStart;
+            const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+            const hits = settled.filter((r) => r.status === "fulfilled" && r.value.answer).length;
+            const header = `recalled ${hits} insight${hits === 1 ? "" : "s"} \xB7 ` + `${queries.length} dialectic${queries.length === 1 ? "" : "s"} @ ${reasoningLevel} \xB7 ${secs(totalMs)}`;
+            const blocks = settled.map((r, i) => {
+              const label = `q${i + 1} "${queries[i]}"`;
+              if (r.status === "rejected") {
+                const msg = r.reason instanceof Error ? r.reason.message : String(r.reason);
+                return `${label} \u2014 failed
+\u2192 (error: ${msg})`;
+              }
+              const { answer, ms } = r.value;
+              const body = answer && answer.trim() ? answer.trim() : "(no memory found)";
+              return `${label} \u2014 ${secs(ms)}
+\u2192 ${body}`;
+            });
+            return {
+              content: [{ type: "text", text: `${header}
+
+${blocks.join(`
+
+`)}` }]
+            };
+          } finally {
+            clearTimeout(deadlineTimer);
+            fanOut.catch(() => {});
+          }
+        }
+        case "schedule_dream": {
+          const scopeToSession = args?.session !== false;
+          const observationMode2 = getObservationMode(activeConfig);
+          const observer = observationMode2 === "unified" ? activeConfig.peerName : activeConfig.aiPeer;
+          const observed = observationMode2 === "directional" ? activeConfig.peerName : undefined;
+          await honcho.scheduleDream({
+            observer,
+            ...observed ? { observed } : {},
+            ...scopeToSession ? { session } : {}
+          });
+          const scope = scopeToSession ? `session ${sessionName}` : "workspace";
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Scheduled dream for observer=${observer}${observed ? ` observed=${observed}` : ""} (${scope}). Consolidation runs in the background.`
+              }
+            ]
+          };
         }
         case "create_conclusion": {
           const content = args?.content;

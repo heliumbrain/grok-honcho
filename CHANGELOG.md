@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- Document and surface per-host `apiKey`: resolve `HONCHO_API_KEY` → `hosts.<host>.apiKey` → root `apiKey`; `get_config` reports `resolved.apiKeySource` (`env`/`host`/`root`) without echoing the key; warn when `HONCHO_API_KEY` is set
+- Opt-in MCP tool `honcho_remember` (batched dialectic recall, max 5 queries, `reasoning_level` `low`/`medium`/`high`). Enable with `set_config field=rememberTool value=true`. SessionStart directives name it as the primary recall path when on
+- MCP tool `schedule_dream` — trigger Honcho background consolidation via SDK `scheduleDream`. Defaults to the current session; `session: false` dreams workspace-wide. Observer follows `observationMode`
+
 ## [0.1.4] — 2026-08-12
 
 - `git-branch` session strategy now resolves the current branch via `git branch --show-current` and includes it in the session name; falls back to per-directory naming outside a repo or on detached HEAD

@@ -65,10 +65,10 @@ Self-hosted example:
 
 ```json
 {
-  "apiKey": "your-key",
   "peerName": "alice",
   "hosts": {
     "grok": {
+      "apiKey": "your-key",
       "workspace": "default",
       "aiPeer": "grok",
       "sessionStrategy": "per-directory",
@@ -78,7 +78,9 @@ Self-hosted example:
 }
 ```
 
-SaaS: omit `endpoint` (or `"environment": "production"`). Env overrides: `HONCHO_API_KEY`, `HONCHO_ENDPOINT`, `HONCHO_PEER_NAME`, `HONCHO_HOST=grok`.
+API key resolution (first match wins): `HONCHO_API_KEY` → `hosts.<host>.apiKey` → root `apiKey`. `get_config` reports `resolved.apiKeySource` as `env` | `host` | `root` and never echoes the key. A `HONCHO_API_KEY` warning is listed when the env var is set.
+
+SaaS: omit `endpoint` (or `"environment": "production"`). Other env overrides: `HONCHO_ENDPOINT`, `HONCHO_PEER_NAME`, `HONCHO_HOST=grok`.
 
 If `hosts.grok` is missing, this plugin **falls back to `hosts.claude_code`** so existing setups keep working without rewriting config.
 
@@ -98,7 +100,7 @@ The `sessions` map is explicit-only (`set_config` `sessions.set`); SessionStart 
 
 ### Config reference
 
-Host-level keys go under `hosts.grok` (or fall back to `hosts.claude_code`). Root keys (`apiKey`, `peerName`, `sessions`, `redactPatterns`) are shared.
+Host-level keys go under `hosts.grok` (or fall back to `hosts.claude_code`). Root keys (`apiKey`, `peerName`, `sessions`, `redactPatterns`) are shared. Prefer `hosts.grok.apiKey` so other hosts can keep their own keys.
 
 | Field | Default | When to change it |
 |-------|---------|-------------------|
@@ -110,6 +112,7 @@ Host-level keys go under `hosts.grok` (or fall back to `hosts.claude_code`). Roo
 | `sessionPeerPrefix` | `true` | `false` drops `{peerName}-` from session names. Keep `true` in shared/team workspaces to avoid collisions. |
 | `observationMode` | `unified` | `unified`: conclusions stored/read as the user peer. `directional`: the AI peer observes the user. Switching modes does **not** migrate existing conclusions. |
 | `reasoningLevel` | `medium` | Dialectic budget for the `chat` tool (`minimal` … `max`). |
+| `rememberTool` | `false` | Opt in to the `honcho_remember` MCP tool (batched dialectic recall). Off until `set_config field=rememberTool value=true` (or `hosts.grok.rememberTool: true`). |
 | `globalOverride` | `false` | `true`: root `workspace`/`aiPeer` win over the host block. Use to force one workspace across hosts. |
 | `redactPatterns` | `[]` | Extra regexes, additive to built-in secret redaction. Invalid patterns are rejected by `set_config`. |
 
@@ -119,7 +122,7 @@ Dangerous `set_config` fields (`workspace`, `endpoint.*`) need `confirm=true`.
 
 | Event | Behavior |
 |-------|----------|
-| **SessionStart** | Ensure session; inject memory directives + optional summary; nudge `get_briefing`. When `saveMessages=false`, skip Honcho network calls and inject a short notice instead |
+| **SessionStart** | Ensure session; inject memory directives + optional summary; nudge `get_briefing`. When `rememberTool` is on, name `honcho_remember` as the primary recall path. When `saveMessages=false`, skip Honcho network calls and inject a short notice instead |
 | **UserPromptSubmit** | Save real user prompts (skip harness-injected) |
 | **PostToolUse** | Log a redacted summary of Write/Edit/Bash/Task (Grok names mapped). Upload only when `saveToolUse=true` (default **off**) and `saveMessages` is not false |
 | **Stop** | Save assistant text from **`lastAssistantMessage` first**; transcript fallback only if needed; skip when `stopHookActive` |
@@ -132,7 +135,10 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 
 ## MCP tools
 
-`get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`.
+`get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`, `schedule_dream`. Opt-in: `honcho_remember` (requires `rememberTool=true`).
+
+- **`honcho_remember`** — batched dialectic recall (1–5 queries, `reasoning_level` `low`/`medium`/`high`). Hidden from the tool list until enabled.
+- **`schedule_dream`** — trigger Honcho background consolidation (`scheduleDream` in `@honcho-ai/sdk`). Default scopes to the current session; pass `session: false` for workspace-wide. Observer follows `observationMode`.
 
 Skills: `setup`, `status`, `config`, `briefing`, `interview` (first-run preference capture via `chat` + `create_conclusion`).
 
