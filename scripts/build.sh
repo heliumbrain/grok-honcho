@@ -8,10 +8,13 @@ mkdir -p dist/hooks
 echo "Building MCP server…"
 bun build ./mcp-server.ts --outfile dist/mcp-server.js --target bun
 
-for h in session-start session-end user-prompt stop post-tool-use pre-compact; do
+echo "Building status-line helper…"
+bun build ./status-line.ts --outfile dist/status-line.js --target bun
+
+for h in session-start session-end user-prompt stop post-tool-use mcp-tool-activity pre-compact; do
   echo "Building hooks/${h}…"
   bun build "./hooks/${h}.ts" --outfile "dist/hooks/${h}.js" --target bun
 done
 
 echo "Done:"
-ls -lh dist/mcp-server.js dist/hooks/*.js
+ls -lh dist/mcp-server.js dist/status-line.js dist/hooks/*.js

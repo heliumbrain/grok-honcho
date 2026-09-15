@@ -16,6 +16,7 @@ const HONCHO_MAX_BATCH = 50;
 
 interface IdCache {
   sessions?: Record<string, { name: string; id: string; updatedAt: string; instanceId?: string }>;
+  gitStates?: Record<string, string>;
 }
 
 function ensureCacheDir(): void {
@@ -66,6 +67,29 @@ export function getInstanceIdForCwd(cwd: string): string | null {
     if (normalizeCwd(stored) === key) return entry.instanceId ?? null;
   }
   return null;
+}
+
+export function isGitStateAlreadyRecorded(key: string, fingerprint: string): boolean {
+  try {
+    return loadIdCache().gitStates?.[key] === fingerprint;
+  } catch {
+    return false;
+  }
+}
+
+export function recordGitState(key: string, fingerprint: string, limit: number): void {
+  try {
+    const cache = loadIdCache();
+    const states = cache.gitStates ?? {};
+    delete states[key];
+    states[key] = fingerprint;
+    const keys = Object.keys(states);
+    for (const oldKey of keys.slice(0, Math.max(0, keys.length - limit))) delete states[oldKey];
+    cache.gitStates = states;
+    saveIdCache(cache);
+  } catch {
+    // State observations are best effort; never break hooks for local cache I/O.
+  }
 }
 
 /** Most recently active CWD — MCP fallback when process.cwd() is wrong. */

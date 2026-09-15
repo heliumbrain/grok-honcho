@@ -63,6 +63,21 @@ describe("MCP honcho_remember", () => {
         const listed = await client.listTools();
         expect(listed.tools.map((t) => t.name)).not.toContain("honcho_remember");
         expect(listed.tools.map((t) => t.name)).toContain("schedule_dream");
+        expect(listed.tools.map((t) => t.name)).toContain("import_grok_transcript");
+
+        const importPreview = await client.callTool({
+          name: "import_grok_transcript",
+          arguments: { path: "/no/user/transcript/updates.jsonl" },
+        });
+        const importResult = importPreview as { content: Array<{ type: string; text?: string }> };
+        expect(JSON.parse(toolText(importResult))).toMatchObject({ dryRun: true, selectedEvents: 0 });
+
+        const prematureImport = await client.callTool({
+          name: "import_grok_transcript",
+          arguments: { path: "/no/user/transcript/updates.jsonl", confirm: true },
+        });
+        expect((prematureImport as { isError?: boolean }).isError).toBe(true);
+        expect(toolText(prematureImport as { content: Array<{ type: string; text?: string }> })).toContain("preview_token");
 
         const off = await client.callTool({
           name: "honcho_remember",

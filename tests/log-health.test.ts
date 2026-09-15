@@ -20,8 +20,48 @@ describe("hook health", () => {
       lastSessionStartAt: "2026-08-12T10:00:00.000Z",
       lastUserPromptAt: "2026-08-12T10:01:00.000Z",
       lastStopAt: "2026-08-12T10:02:00.000Z",
+      lastMcpToolAt: null,
+      lastMcpToolSuccessAt: null,
+      lastMcpToolErrorAt: null,
+      lastMcpTool: null,
     });
   });
+
+  test("reports the latest qualified MCP outcome without arguments or results", () => {
+    const health = parseHookHealth(
+      [
+        JSON.stringify({
+          timestamp: "2026-08-12T10:03:00.000Z",
+          source: "grok-honcho:mcp-tool",
+          message: "MCP success: honcho__get_config",
+          timing: 12,
+          session: "user-repo",
+          cwd: "/repo",
+          toolInput: { apiKey: "secret" },
+          toolResponse: { content: "private memory" },
+        }),
+        JSON.stringify({
+          timestamp: "2026-08-12T10:04:00.000Z",
+          source: "grok-honcho:mcp-tool",
+          message: "MCP error: honcho__honcho_remember",
+          timing: 20,
+          session: "user-repo",
+          cwd: "/repo",
+        }),
+      ].join("\n"),
+      "/repo",
+    );
+
+    expect(health.lastMcpToolSuccessAt).toBe("2026-08-12T10:03:00.000Z");
+    expect(health.lastMcpToolErrorAt).toBe("2026-08-12T10:04:00.000Z");
+    expect(health.lastMcpTool).toEqual({
+      name: "honcho__honcho_remember",
+      outcome: "error",
+      durationMs: 20,
+      session: "user-repo",
+    });
+  });
+
 
   test("ignores malformed, other-plugin, and other-project entries", () => {
     const health = parseHookHealth(

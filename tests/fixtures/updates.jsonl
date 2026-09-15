@@ -1,0 +1,6 @@
+{"timestamp":1710000000,"method":"session/update","params":{"sessionId":"grok-session-a","update":{"id":"user-a-1","sessionUpdate":"user_message","content":{"type":"text","text":"Please preserve timestamps."}}}}
+{"timestamp":1710000005,"method":"session/update","params":{"sessionId":"grok-session-a","update":{"id":"assistant-a-1","sessionUpdate":"agent_message","content":{"type":"text","text":"I will preserve them."}}}}
+{"timestamp":1710000010,"method":"session/update","params":{"sessionId":"grok-session-b","update":{"sessionUpdate":"user_message","content":{"type":"text","text":"A second historical conversation."}}}}
+{"timestamp":1710000011,"method":"session/update","params":{"sessionId":"grok-session-b","update":{"sessionUpdate":"tool_call_update","title":"Ignored tool update"}}}
+this is a torn append
+{"timestamp":1710000020,"method":"_x.ai/session/update","params":{"sessionId":"grok-session-a","update":{"sessionUpdate":"rewind_marker"}}}

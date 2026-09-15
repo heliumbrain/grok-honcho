@@ -33,6 +33,10 @@ export interface HookHealth {
   lastSessionStartAt: string | null;
   lastUserPromptAt: string | null;
   lastStopAt: string | null;
+  lastMcpToolAt: string | null;
+  lastMcpToolSuccessAt: string | null;
+  lastMcpToolErrorAt: string | null;
+  lastMcpTool: { name: string; outcome: "success" | "error"; durationMs?: number; session?: string } | null;
 }
 
 let currentCwd: string | null = null;
@@ -118,6 +122,10 @@ export function parseHookHealth(content: string, cwd?: string): HookHealth {
     lastSessionStartAt: null,
     lastUserPromptAt: null,
     lastStopAt: null,
+    lastMcpToolAt: null,
+    lastMcpToolSuccessAt: null,
+    lastMcpToolErrorAt: null,
+    lastMcpTool: null,
   };
 
   for (const line of content.split("\n")) {
@@ -137,6 +145,20 @@ export function parseHookHealth(content: string, cwd?: string): HookHealth {
       if (entry.source === "grok-honcho:session-start") health.lastSessionStartAt = entry.timestamp;
       if (entry.source === "grok-honcho:user-prompt") health.lastUserPromptAt = entry.timestamp;
       if (entry.source === "grok-honcho:stop") health.lastStopAt = entry.timestamp;
+      if (entry.source === "grok-honcho:mcp-tool" && typeof entry.message === "string") {
+        const match = entry.message.match(/^MCP (success|error): (honcho__[^\s]+)$/);
+        if (!match) continue;
+        const outcome = match[1] as "success" | "error";
+        health.lastMcpToolAt = entry.timestamp;
+        if (outcome === "success") health.lastMcpToolSuccessAt = entry.timestamp;
+        else health.lastMcpToolErrorAt = entry.timestamp;
+        health.lastMcpTool = {
+          name: match[2],
+          outcome,
+          ...(typeof entry.timing === "number" && Number.isFinite(entry.timing) ? { durationMs: entry.timing } : {}),
+          ...(typeof entry.session === "string" ? { session: entry.session } : {}),
+        };
+      }
     } catch {
       // Ignore malformed/shared log lines.
     }

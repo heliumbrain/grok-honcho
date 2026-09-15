@@ -12,5 +12,5 @@
     "isolatedModules": true,
     "lib": ["ES2022"]
   },
-  "include": ["src/**/*", "hooks/**/*", "mcp-server.ts", "tests/**/*"]
+  "include": ["src/**/*", "hooks/**/*", "mcp-server.ts", "status-line.ts", "tests/**/*"]
 }

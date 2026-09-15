@@ -1,10 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.5] — 2026-09-15
+
+- Failed explicit plugin-update checks use a one-minute negative cache (successful checks remain cached for six hours), so a temporary failure does not suppress a subsequent retry.
+- Bound SessionStart Git-state subprocesses to a one-second timeout and 4 KiB output cap; timeout/output-limit failures skip the optional observation.
+- Status line now reports a first or only local MCP failure as degraded.
+- Test every MCP/hook manifest runtime reference against committed `dist/` output.
 
 - Document and surface per-host `apiKey`: resolve `HONCHO_API_KEY` → `hosts.<host>.apiKey` → root `apiKey`; `get_config` reports `resolved.apiKeySource` (`env`/`host`/`root`) without echoing the key; warn when `HONCHO_API_KEY` is set
 - Opt-in MCP tool `honcho_remember` (batched dialectic recall, max 5 queries, `reasoning_level` `low`/`medium`/`high`). Enable with `set_config field=rememberTool value=true`. SessionStart directives name it as the primary recall path when on
 - MCP tool `schedule_dream` — trigger Honcho background consolidation via SDK `scheduleDream`. Defaults to the current session; `session: false` dreams workspace-wide. Observer follows `observationMode`
+- Grok-native `insights` skill — gathers existing Honcho context and conclusions into ranked, redacted, evidence-backed proposals for `AGENTS.md`, configuration, or workflow guidance; distinguishes durable patterns from one-off context and requires explicit selection and confirmation before any edit
+- Track this plugin's qualified `honcho__*` MCP calls through Grok `PostToolUse`/`PostToolUseFailure` hooks. `get_config.hookHealth` now reports local success/error timestamps and metadata-only last-call details (tool name, optional duration, session); arguments, results, credentials, and recalled memory are neither logged nor uploaded.
+
 
 ## [0.1.4] — 2026-08-12
 

@@ -1,6 +1,6 @@
 {
   "name": "honcho",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Persistent memory for Grok Build sessions using Honcho",
   "author": {
     "name": "heliumbrain",
