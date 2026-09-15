@@ -53,6 +53,9 @@ describe("MCP config", () => {
         hosts: { grok: { enabled: true } },
       },
       async (client) => {
+        const tools = await client.listTools();
+        expect(tools.tools.map((tool) => tool.name)).toContain("check_plugin_update");
+
         const changed = await client.callTool({
           name: "set_config",
           arguments: { field: "enabled", value: false },
@@ -78,7 +81,16 @@ describe("MCP config", () => {
         expect(config.resolved.enabled).toBe(false);
         expect(config.resolved.rememberTool).toBe(false);
         expect(config.resolved.apiKeySource).toBe("root");
-        expect(config.plugin).toEqual({ name: "grok-honcho", version: "0.1.4" });
+        expect(config.plugin).toMatchObject({
+          name: "grok-honcho",
+          version: "0.1.5",
+          update: {
+            installedVersion: "0.1.5",
+            latestVersion: null,
+            source: "https://api.github.com/repos/heliumbrain/grok-honcho/releases",
+            updateCommand: "grok plugin update honcho",
+          },
+        });
       },
     );
   });

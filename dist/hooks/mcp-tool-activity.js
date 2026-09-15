@@ -45,9 +45,6 @@ function detectHost(stdinInput) {
 function cacheStdin(text) {
   _stdinText = text;
 }
-function getCachedStdin() {
-  return _stdinText;
-}
 async function initHook() {
   const stdinText = await Bun.stdin.text();
   cacheStdin(stdinText);
@@ -251,6 +248,19 @@ function worktreeMainRootFor(cwd) {
   } catch {}
   return null;
 }
+function getGitBranch(cwd) {
+  try {
+    const result = Bun.spawnSync(["git", "-C", cwd, "branch", "--show-current"], {
+      stdout: "pipe",
+      stderr: "ignore"
+    });
+    if (!result.success)
+      return;
+    return result.stdout.toString().trim() || undefined;
+  } catch {
+    return;
+  }
+}
 function deriveSessionName(strategy, cwd, opts = {}) {
   const usePrefix = opts.sessionPeerPrefix !== false;
   const peerPart = opts.peerName ? sanitizeForSessionName(opts.peerName) : "user";
@@ -306,8 +316,54 @@ function getSessionName(cwd, instanceId, config, branch) {
 function isLoggingEnabled() {
   return loadConfig()?.logging !== false;
 }
-function isPluginEnabled() {
-  return loadConfig()?.enabled !== false;
+
+// src/log.ts
+import { homedir as homedir2 } from "os";
+import { join as join2 } from "path";
+import { existsSync as existsSync2, appendFileSync, mkdirSync as mkdirSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "fs";
+var CACHE_DIR = join2(homedir2(), ".honcho");
+var LOG_FILE = join2(CACHE_DIR, "activity.log");
+var MAX_LOG_SIZE = 100 * 1024;
+var currentCwd = null;
+var currentSession = null;
+function setLogContext(cwd, session) {
+  currentCwd = cwd;
+  currentSession = session || null;
+}
+function ensureLogDir() {
+  if (!existsSync2(CACHE_DIR))
+    mkdirSync2(CACHE_DIR, { recursive: true });
+}
+function logActivity(level, source, message, data, options) {
+  if (!isLoggingEnabled())
+    return;
+  ensureLogDir();
+  const entry = {
+    timestamp: new Date().toISOString(),
+    level,
+    source: source.startsWith("grok-honcho") ? source : `grok-honcho:${source}`,
+    message,
+    data,
+    timing: options?.timing,
+    success: options?.success,
+    depth: options?.depth ?? 0,
+    cwd: options?.cwd || currentCwd || undefined,
+    session: options?.session || currentSession || undefined,
+    plugin: "grok-honcho"
+  };
+  try {
+    if (existsSync2(LOG_FILE)) {
+      try {
+        const stats = Bun.file(LOG_FILE).size;
+        if (stats > MAX_LOG_SIZE) {
+          const content = readFileSync2(LOG_FILE, "utf-8");
+          writeFileSync2(LOG_FILE, content.slice(-50 * 1024));
+        }
+      } catch {}
+    }
+    appendFileSync(LOG_FILE, JSON.stringify(entry) + `
+`);
+  } catch {}
 }
 
 // src/payload.ts
@@ -363,120 +419,43 @@ function resolveCwd(input, fallback = process.cwd()) {
   return input.workspaceRoot || input.cwd || fallback;
 }
 
-// src/cache.ts
-import { homedir as homedir2 } from "os";
-import { join as join2 } from "path";
-import { existsSync as existsSync2, readFileSync as readFileSync2, writeFileSync as writeFileSync2, mkdirSync as mkdirSync2 } from "fs";
-var CACHE_DIR = join2(homedir2(), ".honcho");
-var ID_CACHE_FILE = join2(CACHE_DIR, "cache.json");
-function ensureCacheDir() {
-  if (!existsSync2(CACHE_DIR))
-    mkdirSync2(CACHE_DIR, { recursive: true });
+// src/hooks/mcp-tool-activity.ts
+var HONCHO_MCP_NAMESPACE = "honcho__";
+function isHonchoMcpTool(toolName) {
+  return Boolean(toolName && toolName.startsWith(HONCHO_MCP_NAMESPACE) && toolName.length > HONCHO_MCP_NAMESPACE.length);
 }
-function loadIdCache() {
-  ensureCacheDir();
-  if (!existsSync2(ID_CACHE_FILE))
-    return {};
-  try {
-    return JSON.parse(readFileSync2(ID_CACHE_FILE, "utf-8"));
-  } catch {
-    return {};
-  }
+function classifyMcpToolOutcome(hook) {
+  if (hook.hookEventName === "PostToolUseFailure" || hook.toolResponse?.error !== undefined)
+    return "error";
+  return "success";
 }
-function getInstanceIdForCwd(cwd) {
-  const cache = loadIdCache();
-  if (!cache.sessions)
+function mcpToolActivity(hook) {
+  if (!isHonchoMcpTool(hook.toolName))
     return null;
-  const key = normalizeCwd(cwd);
-  const direct = cache.sessions[key] ?? cache.sessions[cwd];
-  if (direct)
-    return direct.instanceId ?? null;
-  for (const [stored, entry] of Object.entries(cache.sessions)) {
-    if (normalizeCwd(stored) === key)
-      return entry.instanceId ?? null;
-  }
-  return null;
-}
-
-// src/log.ts
-import { homedir as homedir3 } from "os";
-import { join as join3 } from "path";
-import { existsSync as existsSync3, appendFileSync, mkdirSync as mkdirSync3, readFileSync as readFileSync3, writeFileSync as writeFileSync3 } from "fs";
-var CACHE_DIR2 = join3(homedir3(), ".honcho");
-var LOG_FILE = join3(CACHE_DIR2, "activity.log");
-var MAX_LOG_SIZE = 100 * 1024;
-var currentCwd = null;
-var currentSession = null;
-function setLogContext(cwd, session) {
-  currentCwd = cwd;
-  currentSession = session || null;
-}
-function ensureLogDir() {
-  if (!existsSync3(CACHE_DIR2))
-    mkdirSync3(CACHE_DIR2, { recursive: true });
-}
-function logActivity(level, source, message, data, options) {
-  if (!isLoggingEnabled())
-    return;
-  ensureLogDir();
-  const entry = {
-    timestamp: new Date().toISOString(),
-    level,
-    source: source.startsWith("grok-honcho") ? source : `grok-honcho:${source}`,
-    message,
-    data,
-    timing: options?.timing,
-    success: options?.success,
-    depth: options?.depth ?? 0,
-    cwd: options?.cwd || currentCwd || undefined,
-    session: options?.session || currentSession || undefined,
-    plugin: "grok-honcho"
+  return {
+    tool: hook.toolName,
+    outcome: classifyMcpToolOutcome(hook),
+    ...hook.durationMs === undefined ? {} : { durationMs: hook.durationMs }
   };
-  try {
-    if (existsSync3(LOG_FILE)) {
-      try {
-        const stats = Bun.file(LOG_FILE).size;
-        if (stats > MAX_LOG_SIZE) {
-          const content = readFileSync3(LOG_FILE, "utf-8");
-          writeFileSync3(LOG_FILE, content.slice(-50 * 1024));
-        }
-      } catch {}
-    }
-    appendFileSync(LOG_FILE, JSON.stringify(entry) + `
-`);
-  } catch {}
 }
-function logHook(hookName, message, data) {
-  logActivity("hook", hookName, message, data);
-}
-
-// src/hooks/session-end.ts
-async function handleSessionEnd() {
-  try {
-    const config = loadConfig();
-    if (!config || !isPluginEnabled()) {
-      process.exit(0);
-    }
-    let raw = {};
-    try {
-      const input = getCachedStdin() ?? await Bun.stdin.text();
-      if (input.trim())
-        raw = JSON.parse(input);
-    } catch {}
-    const hook = normalizeHookInput(raw);
-    const cwd = resolveCwd(hook);
-    const reason = hook.reason || "unknown";
-    const instanceId = hook.sessionId || getInstanceIdForCwd(cwd) || undefined;
-    const sessionName = getSessionName(cwd, instanceId);
-    setLogContext(cwd, sessionName);
-    logHook("session-end", "Session ending", { reason });
-    logHook("session-end", "Session ended \u2014 no upload (messages saved live)");
-  } catch (error) {
-    logHook("session-end", `Error: ${error}`, { error: String(error) });
-  }
-  process.exit(0);
+function recordMcpToolActivity(raw) {
+  const hook = normalizeHookInput(raw);
+  const activity = mcpToolActivity(hook);
+  if (!activity)
+    return null;
+  const cwd = resolveCwd(hook);
+  const config = loadConfig();
+  const branch = config?.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
+  const session = config ? getSessionName(cwd, hook.sessionId, config, branch) : undefined;
+  setLogContext(cwd, session);
+  logActivity("hook", "mcp-tool", `MCP ${activity.outcome}: ${activity.tool}`, undefined, {
+    timing: activity.durationMs,
+    success: activity.outcome === "success",
+    cwd,
+    session
+  });
+  return activity;
 }
 
-// hooks/session-end.ts
-await initHook();
-await handleSessionEnd();
+// hooks/mcp-tool-activity.ts
+recordMcpToolActivity(await initHook());

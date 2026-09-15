@@ -1,15 +1,15 @@
 # Verification
 
-## Current (v0.1.4, 2026-09-12)
+## Current (v0.1.5, 2026-09-15)
 
-Gating checks on `main` after #31 (`9cc80d3`; tag `v0.1.4` is `83f771c`):
+Gating checks on the pending v0.1.5 release:
 
 | Check | Result |
 |-------|--------|
-| `bun test` | 70 pass |
+| `bun test` | pass |
 | `bunx tsc --noEmit` | pass |
 | `bun run build` + `git diff --exit-code -- dist` | pass (committed bundles match) |
-| GitHub release | https://github.com/heliumbrain/grok-honcho/releases/tag/v0.1.4 |
+| Planned GitHub release | https://github.com/heliumbrain/grok-honcho/releases/tag/v0.1.5 |
 
 CI workflow: `.github/workflows/ci.yml` (bun 1.3.14, frozen lockfile, tests, typecheck, dist freshness).
 
@@ -97,7 +97,7 @@ With plugin trusted, call `get_config` in a Grok session opened in a known dir (
 
 Also check:
 
-- `plugin.version` is `0.1.4`
+- `plugin.version` is `0.1.5`
 - `hookHealth` timestamps populate after a bound SessionStart / UserPrompt / Stop
 - `warnings` includes the `/hooks` → `r` reminder when `hookHealth.lastActivityAt` is null
 

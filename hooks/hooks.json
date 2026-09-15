@@ -33,6 +33,28 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "honcho__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/mcp-tool-activity.js\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "honcho__*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun run \"${CLAUDE_PLUGIN_ROOT}/dist/hooks/mcp-tool-activity.js\"",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

@@ -37,8 +37,17 @@ import {
   type ObservationMode,
 } from "../config.js";
 import { getLastActiveCwd } from "../cache.js";
+import { checkPluginUpdate, getCachedPluginUpdateStatus } from "../plugin-update.js";
 import { getHookHealth, getLogPath } from "../log.js";
 import { validateRedactPattern } from "../redact.js";
+import {
+  alreadyImported,
+  previewTranscript,
+  recordImported,
+  targetSessionName,
+  withImportLedgerLock,
+  type ImportSelection,
+} from "../transcript-import.js";
 
 const DIALECTIC_TIMEOUT_MS = 120_000;
 
@@ -185,7 +194,11 @@ function handleGetConfig(cwd: string) {
             warnings,
             configPath: cfgPath,
             configExists: cfgExists,
-            plugin: { name: "grok-honcho", version: getPluginVersion() },
+            plugin: {
+              name: "grok-honcho",
+              version: getPluginVersion(),
+              update: getCachedPluginUpdateStatus(getPluginVersion()),
+            },
           },
           null,
           2,
@@ -453,6 +466,25 @@ export async function runMcpServer(): Promise<void> {
       tools: [
         ...(rememberEnabled ? [REMEMBER_TOOL] : []),
       {
+        name: "import_grok_transcript",
+        description:
+          "Preview or explicitly import a user-selected Grok updates.jsonl transcript. Defaults to dry-run; upload requires confirm=true and the exact preview_token returned by that dry-run.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string", description: "Explicit path to one updates.jsonl file" },
+            from: { type: "string", description: "Inclusive ISO-8601 timestamp" },
+            to: { type: "string", description: "Inclusive ISO-8601 timestamp" },
+            source_sessions: { type: "array", items: { type: "string" }, description: "Source Grok session IDs to include" },
+            max_events: { type: "number", default: 500, description: "Maximum events to preview/import (1-5000)" },
+            session_strategy: { type: "string", enum: ["source-session", "current-session"], default: "source-session" },
+            confirm: { type: "boolean", default: false, description: "Set true only after reviewing the dry-run" },
+            preview_token: { type: "string", description: "Exact token returned by the dry-run" },
+          },
+          required: ["path"],
+        },
+      },
+      {
         name: "schedule_dream",
         description:
           "Trigger background memory consolidation (a Honcho dream). Honcho merges redundant conclusions and derives higher-level insights. Scope follows observationMode: unified dreams as the user peer; directional dreams as the AI peer observing the user.",
@@ -577,6 +609,12 @@ export async function runMcpServer(): Promise<void> {
         inputSchema: { type: "object", properties: {} },
       },
       {
+        name: "check_plugin_update",
+        description:
+          "Explicitly check the public grok-honcho GitHub Releases feed for an update. Uses a short timeout and cached result; sends no plugin configuration, credentials, or prompts.",
+        inputSchema: { type: "object", properties: {} },
+      },
+      {
         name: "set_config",
         description: "Update a Honcho config field. Dangerous changes need confirm=true.",
         inputSchema: {
@@ -620,7 +658,102 @@ export async function runMcpServer(): Promise<void> {
     const cwd = resolveCwdForMcp();
 
     if (name === "get_config") return handleGetConfig(cwd);
+    if (name === "check_plugin_update") {
+      const status = await checkPluginUpdate(getPluginVersion());
+      return { content: [{ type: "text" as const, text: JSON.stringify(status, null, 2) }] };
+    }
     if (name === "set_config") return handleSetConfig((args ?? {}) as Record<string, unknown>);
+
+    if (name === "import_grok_transcript") {
+      const sourcePath = typeof args?.path === "string" ? args.path : "";
+      const from = typeof args?.from === "string" ? new Date(args.from) : null;
+      const to = typeof args?.to === "string" ? new Date(args.to) : null;
+      const maxEvents = typeof args?.max_events === "number" ? args.max_events : 500;
+      if ((from && Number.isNaN(from.valueOf())) || (to && Number.isNaN(to.valueOf())) || (from && to && from > to)) {
+        return { content: [{ type: "text" as const, text: "Error: from/to must be valid ISO timestamps with from no later than to." }], isError: true };
+      }
+      if (!Number.isInteger(maxEvents) || maxEvents < 1 || maxEvents > 5_000) {
+        return { content: [{ type: "text" as const, text: "Error: max_events must be an integer from 1 to 5000." }], isError: true };
+      }
+      const selection: ImportSelection = {
+        sourcePath,
+        ...(typeof args?.from === "string" ? { from: args.from } : {}),
+        ...(typeof args?.to === "string" ? { to: args.to } : {}),
+        ...(Array.isArray(args?.source_sessions)
+          ? { sourceSessions: (args.source_sessions as unknown[]).filter((value): value is string => typeof value === "string") }
+          : {}),
+        maxEvents,
+        ...(args?.session_strategy === "current-session" || args?.session_strategy === "source-session"
+          ? { sessionStrategy: args.session_strategy }
+          : { sessionStrategy: "source-session" }),
+      };
+      const preview = previewTranscript(selection);
+      const groups = new Map<string, number>();
+      for (const event of preview.events) groups.set(event.sourceSessionId, (groups.get(event.sourceSessionId) ?? 0) + 1);
+      const previewResult = {
+        dryRun: args?.confirm !== true,
+        source: preview.sourceName,
+        selectedEvents: preview.events.length,
+        sourceSessions: Object.fromEntries(groups),
+        malformedLines: preview.malformedLines,
+        ignoredLines: preview.ignoredLines,
+        truncated: preview.truncated,
+        previewToken: preview.fingerprint,
+        sample: preview.events.slice(0, 5).map(({ role, createdAt, sourceSessionId, line }) => ({ role, createdAt, sourceSessionId, line })),
+      };
+      if (args?.confirm !== true) {
+        return { content: [{ type: "text" as const, text: JSON.stringify(previewResult, null, 2) }] };
+      }
+      if (typeof args?.preview_token !== "string" || args.preview_token !== preview.fingerprint) {
+        return {
+          content: [{ type: "text" as const, text: "Error: confirmation requires the exact preview_token from a matching dry-run." }],
+          isError: true,
+        };
+      }
+      const activeConfig = loadConfig();
+      if (!activeConfig || activeConfig.enabled === false) {
+        return {
+          content: [{ type: "text" as const, text: "Error: Honcho must be configured and enabled before importing." }],
+          isError: true,
+        };
+      }
+      try {
+        const honcho = new Honcho(getHonchoClientOptions(activeConfig));
+        const currentSession = getSessionName(cwd, undefined, activeConfig, activeConfig.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined);
+        const userPeer = await honcho.peer(activeConfig.peerName);
+        const aiPeer = await honcho.peer(activeConfig.aiPeer);
+        const observationMode = getObservationMode(activeConfig);
+        const result = await withImportLedgerLock(async () => {
+          let uploaded = 0;
+          let skipped = 0;
+          const sessions = new Map<string, Awaited<ReturnType<typeof honcho.session>>>();
+          for (const event of preview.events) {
+            if (alreadyImported(event.id)) { skipped++; continue; }
+            const targetName = targetSessionName(event, currentSession, selection.sessionStrategy);
+            let session = sessions.get(targetName);
+            if (!session) {
+              session = await honcho.session(targetName);
+              const peers: Parameters<typeof session.addPeers>[0] = observationMode === "directional"
+                ? [userPeer, [aiPeer, { observeOthers: true }]]
+                : [userPeer, aiPeer];
+              await session.addPeers(peers);
+              sessions.set(targetName, session);
+            }
+            const peer = event.role === "user" ? userPeer : aiPeer;
+            await session.addMessages([peer.message(event.content, {
+              createdAt: event.createdAt,
+              metadata: { type: "grok_transcript_import", source_session_id: event.sourceSessionId, source_line: event.line, source_event_id: event.id, host: "grok" },
+            })]);
+            recordImported(event.id);
+            uploaded++;
+          }
+          return { uploaded, skipped, targetSessions: [...sessions.keys()] };
+        });
+        return { content: [{ type: "text" as const, text: JSON.stringify({ ...previewResult, dryRun: false, ...result }, null, 2) }] };
+      } catch (error) {
+        return { content: [{ type: "text" as const, text: `Error: import stopped safely: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+      }
+    }
 
     const activeConfig: HonchoRuntimeConfig | null = loadConfig();
     if (!activeConfig) {

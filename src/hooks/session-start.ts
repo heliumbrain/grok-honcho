@@ -3,7 +3,7 @@
  * Fail open; never block cold start for longer than the hook timeout.
  */
 
-import { Honcho } from "@honcho-ai/sdk";
+import { Honcho, Peer, Session } from "@honcho-ai/sdk";
 import {
   loadConfig,
   getSessionName,
@@ -14,10 +14,65 @@ import {
   getObservationMode,
 } from "../config.js";
 import { normalizeHookInput, resolveCwd } from "../payload.js";
-import { setCachedSessionId } from "../cache.js";
+import { setCachedSessionId, isGitStateAlreadyRecorded, recordGitState } from "../cache.js";
+import {
+  collectGitState,
+  formatGitStateObservation,
+  gitStateFingerprint,
+  GIT_STATE_DEDUPLICATION_LIMIT,
+} from "../git-state.js";
 import { logHook, logApiCall, logFlow, setLogContext } from "../log.js";
 
 const CONTEXT_FETCH_TIMEOUT_MS = 10_000;
+
+async function saveGitStateObservation(
+  session: Session,
+  aiPeer: Peer,
+  cwd: string,
+  sessionName: string,
+  instanceId?: string,
+): Promise<void> {
+  const result = collectGitState(cwd);
+  if (result.kind === "not-repository") {
+    logHook("session-start", "Git state skipped (not a repository)");
+    return;
+  }
+  if (result.kind === "unavailable") {
+    logHook("session-start", "Git state unavailable", { error: result.error });
+    return;
+  }
+
+  const fingerprint = gitStateFingerprint(result.state);
+  const cacheKey = `${result.state.repoRoot}\0${sessionName}`;
+  if (isGitStateAlreadyRecorded(cacheKey, fingerprint)) {
+    logHook("session-start", "Git state skipped (unchanged)", { session: sessionName });
+    return;
+  }
+
+  const content = formatGitStateObservation(result.state);
+  try {
+    await session.addMessages([
+      aiPeer.message(content, {
+        createdAt: new Date().toISOString(),
+        metadata: {
+          type: "git_state",
+          session_affinity: sessionName,
+          instance_id: instanceId || undefined,
+          host: "grok",
+        },
+      }),
+    ]);
+    recordGitState(cacheKey, fingerprint, GIT_STATE_DEDUPLICATION_LIMIT);
+    logHook("session-start", "Git state saved", {
+      branch: result.state.branch,
+      detached: result.state.branch === null,
+      dirty: result.state.dirty,
+      commit: result.state.commit,
+    });
+  } catch (error) {
+    logHook("session-start", "Git state upload failed", { error: String(error) });
+  }
+}
 
 /** Memory-usage directives for SessionStart. When rememberTool is on, name
  *  `honcho_remember` as the primary recall path (upstream claude-honcho). */
@@ -106,6 +161,7 @@ export async function handleSessionStart(): Promise<void> {
         ? [userPeer, [aiPeer, { observeOthers: true }]]
         : [userPeer, aiPeer];
     await session.addPeers(peers);
+    await saveGitStateObservation(session, aiPeer, cwd, sessionName, instanceId);
 
     // Prefer a briefing directive so the model loads summary/peer card via MCP
     // (visible tool call) rather than dumping a large blob into context.

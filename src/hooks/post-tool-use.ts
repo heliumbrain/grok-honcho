@@ -15,6 +15,7 @@ import {
 import { normalizeHookInput, resolveCwd } from "../payload.js";
 import { logHook, logApiCall, setLogContext } from "../log.js";
 import { redactSecrets } from "../redact.js";
+import { isHonchoMcpTool } from "./mcp-tool-activity.js";
 
 const SIGNIFICANT = new Set(["Write", "Edit", "Bash", "Task", "NotebookEdit"]);
 
@@ -163,6 +164,10 @@ export async function handlePostToolUse(): Promise<void> {
     const toolName = hook.toolName || "";
     const toolInput = asRecord(hook.toolInput);
     const toolResponse = asRecord(hook.toolResponse);
+    // MCP calls are handled by the dedicated, metadata-only hook. Never upload
+    // them as tool-use messages or they would create duplicate persistence loops.
+    if (isHonchoMcpTool(toolName)) process.exit(0);
+
     const cwd = resolveCwd(hook);
     const branch = config.sessionStrategy === "git-branch" ? getGitBranch(cwd) : undefined;
     const sessionName = getSessionName(cwd, hook.sessionId, config, branch);

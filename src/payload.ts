@@ -21,6 +21,8 @@ export interface NormalizedHookInput {
   toolName?: string;
   toolInput?: Record<string, unknown>;
   toolResponse?: Record<string, unknown>;
+  /** Host-reported tool duration, if available. */
+  durationMs?: number;
   /** PreCompact trigger: `auto` | `manual`. */
   trigger?: string;
   /** Raw parsed object for advanced use. */
@@ -39,6 +41,10 @@ function asBool(v: unknown): boolean | undefined {
     if (t === "false" || t === "0") return false;
   }
   return undefined;
+}
+
+function asDuration(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
 }
 
 function asRecord(v: unknown): Record<string, unknown> | undefined {
@@ -71,6 +77,11 @@ export function normalizeHookInput(input: Record<string, unknown>): NormalizedHo
     toolName: asString(input.toolName) ?? asString(input.tool_name),
     toolInput: asRecord(input.toolInput) ?? asRecord(input.tool_input),
     toolResponse: asRecord(input.toolResponse) ?? asRecord(input.tool_response),
+    durationMs:
+      asDuration(input.durationMs) ??
+      asDuration(input.duration_ms) ??
+      asDuration(input.toolDurationMs) ??
+      asDuration(input.tool_duration_ms),
     trigger: asString(input.trigger),
     raw: input,
   };

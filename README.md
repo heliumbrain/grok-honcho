@@ -57,6 +57,25 @@ MCP skills/tools from the same plugin often work before that reload; message-sav
 
 Once the plugin is trusted, Honcho MCP attaches from the plugin’s `.mcp.json`. You do **not** need a hand-maintained `[mcp_servers.honcho]` in `~/.grok/config.toml`. If you previously added a manual Honcho MCP block, remove or disable it to avoid duplicate tools.
 
+### Optional native status line
+
+Grok treats `ui.status_line` as a user-owned local command, so this plugin **never** edits `~/.grok/config.toml` and never replaces an existing status line. The opt-in helper reads only bounded local Honcho state—`config.json`, `cache.json`, and the tail of `activity.log`—and performs no network request during status updates. It renders only enabled state, current session association, latest hook/MCP activity age, and concise degraded states; it never shows API keys, prompts, message contents, or tool arguments.
+
+After reviewing and approving the change yourself, install a user-owned copy from the plugin directory:
+
+```bash
+bash scripts/install-status-line.sh
+```
+
+Then, **only if you have no existing status-line command**, add this exact configuration yourself:
+
+```toml
+[ui]
+status_line = { command = "bun run ~/.grok/bin/honcho-status-line.js" }
+```
+
+If you already use a status line, leave it unchanged; compose a wrapper only if you deliberately want to maintain one. To disable, remove `status_line` from `~/.grok/config.toml`; optionally run `rm ~/.grok/bin/honcho-status-line.js`. `Honcho: setup` means it is unconfigured, `Honcho: off` means it is disabled, and `degraded: no activity` usually means reload hooks with `/hooks` → `r` and complete a turn. `degraded: stale` is local-only—not a connectivity check—so use `get_config` or an MCP tool for server diagnostics.
+
 ## Config
 
 Shared file: **`~/.honcho/config.json`** (same as other Honcho clients). Preferred block: `hosts.grok`.
@@ -118,13 +137,18 @@ Host-level keys go under `hosts.grok` (or fall back to `hosts.claude_code`). Roo
 
 Dangerous `set_config` fields (`workspace`, `endpoint.*`) need `confirm=true`.
 
+### Plugin updates
+
+Release checks are **explicit only**: no hook, startup path, status line, or `get_config` call makes a network request. Invoke the `check_plugin_update` MCP tool when you want to check the documented public source, [GitHub Releases for `heliumbrain/grok-honcho`](https://api.github.com/repos/heliumbrain/grok-honcho/releases). It uses a 2-second timeout and a local six-hour success cache at `~/.honcho/plugin-update.json`; failures and malformed responses are reported as unavailable and use a one-minute negative cache so a subsequent explicit retry is not delayed. The request contains only the fixed public releases URL—never credentials, configuration, prompts, or memory. `get_config` displays only the cached update status (installed/latest version, last check, policy, and safe update command). Stable installs consider stable releases only; prerelease installs may consider prereleases. Review and run the displayed `grok plugin update honcho` command yourself.
+
 ## Hooks
 
 | Event | Behavior |
 |-------|----------|
-| **SessionStart** | Ensure session; inject memory directives + optional summary; nudge `get_briefing`. When `rememberTool` is on, name `honcho_remember` as the primary recall path. When `saveMessages=false`, skip Honcho network calls and inject a short notice instead |
+| **SessionStart** | Ensure session; persist one deduplicated, tagged Git-state observation when available (branch or detached HEAD, commit SHA, clean/dirty); inject memory directives + optional summary; nudge `get_briefing`. Git state excludes diffs, paths, remotes, and credentials; each Git subprocess is capped at one second and 4 KiB output, and non-repositories/failures are skipped. When `rememberTool` is on, name `honcho_remember` as the primary recall path. When `saveMessages=false`, skip Honcho network calls and inject a short notice instead |
 | **UserPromptSubmit** | Save real user prompts (skip harness-injected) |
 | **PostToolUse** | Log a redacted summary of Write/Edit/Bash/Task (Grok names mapped). Upload only when `saveToolUse=true` (default **off**) and `saveMessages` is not false |
+| **PostToolUse / PostToolUseFailure** | For this plugin's qualified `honcho__*` MCP calls only, record local timestamp, tool name, success/error, optional duration, and session/cwd association. Arguments, results, credentials, and recalled memory are never logged or uploaded. |
 | **Stop** | Save assistant text from **`lastAssistantMessage` first**; transcript fallback only if needed; skip when `stopHookActive` |
 | **PreCompact** | Fetch a compact memory card and write it to `activity.log`. Grok ignores PreCompact stdout, so nothing is injected — call `get_briefing` after compaction |
 | **SessionEnd** | Local log only, fail open |
@@ -135,12 +159,17 @@ Hooks are registered via `hooks/hooks.json` and run the prebuilt `dist/hooks/*.j
 
 ## MCP tools
 
-`get_briefing`, `get_config`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`, `schedule_dream`. Opt-in: `honcho_remember` (requires `rememberTool=true`).
+`get_briefing`, `get_config`, `check_plugin_update`, `set_config`, `chat`, `search`, `create_conclusion`, `list_conclusions`, `query_conclusions`, `delete_conclusion`, `get_context`, `get_representation`, `schedule_dream`, `import_grok_transcript`. Opt-in: `honcho_remember` (requires `rememberTool=true`).
 
 - **`honcho_remember`** — batched dialectic recall (1–5 queries, `reasoning_level` `low`/`medium`/`high`). Hidden from the tool list until enabled.
 - **`schedule_dream`** — trigger Honcho background consolidation (`scheduleDream` in `@honcho-ai/sdk`). Default scopes to the current session; pass `session: false` for workspace-wide. Observer follows `observationMode`.
+- **`import_grok_transcript`** — imports only an explicitly supplied `updates.jsonl`; it never scans real transcript paths. The first call is a dry-run with event/session counts, malformed-line count, a sample without content, and a `previewToken`. Upload requires `confirm: true` plus that exact token. It parses Grok's durable `timestamp` / `method: "session/update"` / `params.sessionId.update` envelope and imports only complete text user/assistant messages with original timestamps; chunk updates are skipped because their current schema has no safe completion marker or message identity. `from`, `to`, `source_sessions`, and `max_events` bound selection; `source-session` (default) keeps historical Grok sessions separate with collision-safe names while `current-session` merges them. Each target associates both peers using the configured observation mode before its messages. Files are capped at 25 MiB / 100,000 lines / 5,000 events; malformed or irrelevant records are skipped; and same-host imports serialize a local ledger around upload. Ledger keys prefer host event IDs, falling back to session/role/timestamp/content identity when the host omits IDs; consequently two genuinely distinct, byte-identical ID-less records cannot be distinguished. The ledger remains best-effort, so failures or separate hosts/filesystems can still permit re-imports.
 
-Skills: `setup`, `status`, `config`, `briefing`, `interview` (first-run preference capture via `chat` + `create_conclusion`).
+Skills: `setup`, `status`, `config`, `briefing`, `interview` (first-run preference capture via `chat` + `create_conclusion`), `import-transcript` (explicit-path, preview-and-confirm historical import), `insights` (ranked, evidence-backed suggestions for instructions, configuration, or workflow guidance).
+
+### Insights skill
+
+`insights` uses existing Honcho context, conclusions, search, and optional `schedule_dream` consolidation to propose at most five durable improvements to `AGENTS.md`, configuration, or workflow/skill guidance. It labels one-off context separately, cites redacted supporting memory/conclusion IDs, and ranks proposals by value and confidence. It is advisory: it never edits files or configuration until the user selects a proposal and explicitly confirms its target.
 
 Session for tools resolves from the project cwd (last SessionStart cache, else `process.cwd()`), not a stale other-directory name.
 
@@ -156,12 +185,17 @@ Config is reloaded from disk on every tool call — `set_config` changes (includ
   "hookHealth": {
     "lastActivityAt": "2026-08-12T10:02:00.000Z",   // null if no hook has run for this project yet
     "lastSessionStartAt": "…", "lastUserPromptAt": "…", "lastStopAt": "…",
+    "lastMcpToolAt": "…", "lastMcpToolSuccessAt": "…", "lastMcpToolErrorAt": null,
+    "lastMcpTool": { "name": "honcho__get_config", "outcome": "success", "durationMs": 12, "session": "alice-myapp" },
     "logPath": "/home/alice/.honcho/activity.log"
   },
   "warnings": [ /* e.g. "No plugin hook activity found for this project. In Grok, open /hooks and press r, then retry a turn." */ ],
   "configPath": "/home/alice/.honcho/config.json",
   "configExists": true,
-  "plugin": { "name": "grok-honcho", "version": "0.1.4" }
+  "plugin": {
+    "name": "grok-honcho", "version": "0.1.5",
+    "update": { "installedVersion": "0.1.5", "latestVersion": null, "checkedAt": null, "updateCommand": "grok plugin update honcho" }
+  }
 }
 ```
 
